@@ -38,7 +38,7 @@ async def query_roadmap(ctx: RunContext[OrchestratorDeps], query: str) -> str:
     """Delegate a roadmap search or question to the roadmap agent."""
     deps = RoadmapDeps(pool=ctx.deps.pool, openai_api_key=ctx.deps.openai_api_key)
     result = await roadmap_agent.run(query, deps=deps)
-    return result.data
+    return result.output
 
 
 @orchestrator.tool
@@ -46,7 +46,7 @@ async def manage_customers(ctx: RunContext[OrchestratorDeps], instruction: str) 
     """Delegate customer management tasks (list/create/update/delete) to the customer agent."""
     deps = CustomerDeps(pool=ctx.deps.pool)
     result = await customer_agent.run(instruction, deps=deps)
-    return result.data
+    return result.output
 
 
 @orchestrator.tool
@@ -54,7 +54,7 @@ async def analyze_impact(ctx: RunContext[OrchestratorDeps], instruction: str) ->
     """Delegate impact analysis for a customer to the impact agent."""
     deps = ImpactDeps(pool=ctx.deps.pool, openai_api_key=ctx.deps.openai_api_key)
     result = await impact_agent.run(instruction, deps=deps)
-    return result.data
+    return result.output
 
 
 @orchestrator.tool
@@ -62,4 +62,4 @@ async def generate_report(ctx: RunContext[OrchestratorDeps], instruction: str) -
     """Delegate report generation to the report agent."""
     deps = ReportDeps(pool=ctx.deps.pool, openai_api_key=ctx.deps.openai_api_key)
     result = await report_agent.run(instruction, deps=deps)
-    return result.data
+    return result.output

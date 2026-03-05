@@ -1,5 +1,4 @@
-"""Agent service entry point — serves the A2A protocol over HTTP."""
-
+"""Agent service entry point."""
 
 import logging
 import os
@@ -9,8 +8,9 @@ from contextlib import asynccontextmanager
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 
-from evergreen.agent.a2a import create_a2a_app
+from evergreen.agent.agents.orchestrator import OrchestratorDeps, orchestrator
 from evergreen.shared.database import close_pool, get_pool
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -20,7 +20,14 @@ DATABASE_URL = os.environ["DATABASE_URL"]
 OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]
 HOST = os.getenv("AGENT_HOST", "0.0.0.0")
 PORT = int(os.getenv("AGENT_PORT", "8000"))
-PUBLIC_HOST = os.getenv("PUBLIC_HOST", "localhost")
+
+
+class QueryRequest(BaseModel):
+    query: str
+
+
+class QueryResponse(BaseModel):
+    answer: str
 
 
 @asynccontextmanager
@@ -41,15 +48,12 @@ async def health() -> dict:
     return {"status": "ok"}
 
 
-async def _build_a2a() -> None:
-    """Mount the A2A app after the pool is ready."""
+@app.post("/query", response_model=QueryResponse)
+async def query(request: QueryRequest) -> QueryResponse:
     pool = await get_pool(DATABASE_URL)
-    a2a = create_a2a_app(pool=pool, openai_api_key=OPENAI_API_KEY, host=PUBLIC_HOST, port=PORT)
-    app.mount("/", a2a)
-
-
-# Mount A2A at startup — pool will be ready since lifespan runs first
-app.add_event_handler("startup", _build_a2a)
+    deps = OrchestratorDeps(pool=pool, openai_api_key=OPENAI_API_KEY)
+    result = await orchestrator.run(request.query, deps=deps)
+    return QueryResponse(answer=result.output)
 
 
 if __name__ == "__main__":
