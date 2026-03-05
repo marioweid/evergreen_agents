@@ -14,7 +14,7 @@ dependencies = [
     "openai>=1.60.0",
     "apscheduler>=3.11.0",
     # Agent
-    "pydantic-ai[anthropic]>=0.2.0",
+    "pydantic-ai[openai]>=0.2.0",
     "a2a-sdk>=0.3.24",
     "fastapi>=0.115.0",
     "uvicorn>=0.34.0",

@@ -17,7 +17,7 @@ class ImpactDeps:
 
 
 impact_agent: Agent[ImpactDeps, str] = Agent(
-    "anthropic:claude-sonnet-4-6",
+    "openai:gpt-4o",
     deps_type=ImpactDeps,
     system_prompt=(
         "You analyze how Microsoft 365 roadmap changes impact specific customers. "

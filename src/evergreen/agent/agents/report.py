@@ -19,7 +19,7 @@ class ReportDeps:
 
 
 report_agent: Agent[ReportDeps, str] = Agent(
-    "anthropic:claude-sonnet-4-6",
+    "openai:gpt-4o",
     deps_type=ReportDeps,
     system_prompt=(
         "You generate weekly Microsoft 365 impact reports for customers. "

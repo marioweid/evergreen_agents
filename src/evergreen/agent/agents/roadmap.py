@@ -19,7 +19,7 @@ class RoadmapDeps:
 
 
 roadmap_agent: Agent[RoadmapDeps, str] = Agent(
-    "anthropic:claude-sonnet-4-6",
+    "openai:gpt-4o",
     deps_type=RoadmapDeps,
     system_prompt=(
         "You are an M365 roadmap expert. Answer questions about Microsoft 365 features, "

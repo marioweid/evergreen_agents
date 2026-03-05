@@ -20,7 +20,7 @@ class CustomerDeps:
 
 
 customer_agent: Agent[CustomerDeps, str] = Agent(
-    "anthropic:claude-sonnet-4-6",
+    "openai:gpt-4o",
     deps_type=CustomerDeps,
     system_prompt=(
         "You manage a database of customers and the Microsoft 365 products they use. "

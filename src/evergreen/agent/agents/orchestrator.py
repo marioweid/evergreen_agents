@@ -17,7 +17,7 @@ class OrchestratorDeps:
 
 
 orchestrator: Agent[OrchestratorDeps, str] = Agent(
-    "anthropic:claude-sonnet-4-6",
+    "openai:gpt-4o",
     deps_type=OrchestratorDeps,
     system_prompt=(
         "You are the Evergreen assistant — an intelligent system for tracking Microsoft 365 "

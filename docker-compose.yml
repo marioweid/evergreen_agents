@@ -45,7 +45,6 @@ services:
     environment:
       DATABASE_URL: postgresql://evergreen:evergreen@postgres:5432/evergreen
       OPENAI_API_KEY: ${OPENAI_API_KEY}
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
       PUBLIC_HOST: ${PUBLIC_HOST:-localhost}
       AGENT_PORT: "8000"
     depends_on:
