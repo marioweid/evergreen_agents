@@ -1,0 +1,64 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    container_name: evergreen-postgres
+    environment:
+      POSTGRES_USER: evergreen
+      POSTGRES_PASSWORD: evergreen
+      POSTGRES_DB: evergreen
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U evergreen -d evergreen"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  pipeline:
+    build:
+      context: .
+      dockerfile: Dockerfile.pipeline
+    container_name: evergreen-pipeline
+    environment:
+      DATABASE_URL: postgresql://evergreen:evergreen@postgres:5432/evergreen
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      # Cron schedule (default: every Sunday 02:00)
+      PIPELINE_CRON: ${PIPELINE_CRON:-0 2 * * 0}
+      RUN_ON_STARTUP: ${RUN_ON_STARTUP:-true}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    env_file:
+      - .env
+
+  agent:
+    build:
+      context: .
+      dockerfile: Dockerfile.agent
+    container_name: evergreen-agent
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql://evergreen:evergreen@postgres:5432/evergreen
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      PUBLIC_HOST: ${PUBLIC_HOST:-localhost}
+      AGENT_PORT: "8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    env_file:
+      - .env
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  postgres_data:

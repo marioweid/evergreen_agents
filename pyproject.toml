@@ -1,0 +1,32 @@
+[project]
+name = "evergreen"
+version = "0.1.0"
+description = "M365 Roadmap tracker with multi-agent impact analysis"
+requires-python = ">=3.13"
+dependencies = [
+    # Shared
+    "asyncpg>=0.30.0",
+    "pgvector>=0.3.6",
+    "pydantic>=2.10.0",
+    "pydantic-settings>=2.7.0",
+    # Pipeline
+    "httpx>=0.28.0",
+    "openai>=1.60.0",
+    "apscheduler>=3.11.0",
+    # Agent
+    "pydantic-ai[anthropic]>=0.2.0",
+    "a2a-sdk>=0.3.24",
+    "fastapi>=0.115.0",
+    "uvicorn>=0.34.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.6.0,<0.7.0"]
+build-backend = "uv_build"
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
