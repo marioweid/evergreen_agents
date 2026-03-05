@@ -1,6 +1,5 @@
 """Report generation sub-agent — weekly per-customer impact reports."""
 
-from __future__ import annotations
 
 from datetime import datetime
 

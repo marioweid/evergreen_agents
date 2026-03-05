@@ -1,6 +1,5 @@
 """Generate text embeddings using OpenAI text-embedding-3-small."""
 
-from __future__ import annotations
 
 from openai import AsyncOpenAI
 

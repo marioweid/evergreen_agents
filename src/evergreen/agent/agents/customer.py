@@ -1,6 +1,5 @@
 """Customer management sub-agent."""
 
-from __future__ import annotations
 
 import asyncpg
 from pydantic_ai import Agent, RunContext

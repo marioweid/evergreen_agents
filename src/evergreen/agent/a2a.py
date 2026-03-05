@@ -1,6 +1,5 @@
 """A2A protocol server wrapping the Evergreen orchestrator."""
 
-from __future__ import annotations
 
 import asyncpg
 from a2a.server.agent_execution import AgentExecutor, RequestContext

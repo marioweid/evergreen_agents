@@ -1,6 +1,5 @@
 """Write roadmap items and embeddings to PostgreSQL."""
 
-from __future__ import annotations
 
 import json
 import logging

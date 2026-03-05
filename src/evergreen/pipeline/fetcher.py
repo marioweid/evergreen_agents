@@ -1,6 +1,5 @@
 """Fetch M365 Roadmap items from the Microsoft feed."""
 
-from __future__ import annotations
 
 import httpx
 

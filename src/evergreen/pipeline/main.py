@@ -1,6 +1,5 @@
 """Pipeline entry point — fetches M365 roadmap items on a schedule."""
 
-from __future__ import annotations
 
 import asyncio
 import logging

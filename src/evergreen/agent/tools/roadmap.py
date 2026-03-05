@@ -1,6 +1,5 @@
 """Tools for searching and querying the M365 roadmap."""
 
-from __future__ import annotations
 
 import json
 
