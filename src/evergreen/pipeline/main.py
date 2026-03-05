@@ -8,7 +8,7 @@ import os
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-from evergreen.pipeline.database import upsert_roadmap_items
+from evergreen.pipeline.database import get_existing_documents, upsert_roadmap_items
 from evergreen.pipeline.embedder import build_document, embed_texts
 from evergreen.pipeline.fetcher import fetch_roadmap_items
 from evergreen.shared.database import close_pool, get_pool
@@ -27,23 +27,39 @@ _EMBED_BATCH_SIZE = 100
 
 
 async def run_ingestion() -> None:
-    """Fetch roadmap, embed, and upsert to DB."""
+    """Fetch roadmap, embed only changed items, and upsert to DB."""
     logger.info("Starting M365 roadmap ingestion")
     pool = await get_pool(DATABASE_URL)
 
-    items = await fetch_roadmap_items()
-    logger.info("Fetched %d roadmap items", len(items))
+    all_items = await fetch_roadmap_items()
+    logger.info("Fetched %d roadmap items", len(all_items))
 
-    documents = [build_document(i.title, i.description, i.products) for i in items]
+    existing_docs = await get_existing_documents(pool)
+
+    # Only process items that are new or whose content has changed
+    changed_items = []
+    changed_docs = []
+    for item in all_items:
+        doc = build_document(item.title, item.description, item.products)
+        if existing_docs.get(item.id) != doc:
+            changed_items.append(item)
+            changed_docs.append(doc)
+
+    if not changed_items:
+        logger.info("Nothing changed — skipping embedding and upsert")
+        return
+
+    skipped = len(all_items) - len(changed_items)
+    logger.info("%d to embed, %d unchanged skipped", len(changed_items), skipped)
 
     all_embeddings: list[list[float]] = []
-    for start in range(0, len(items), _EMBED_BATCH_SIZE):
-        batch_docs = documents[start : start + _EMBED_BATCH_SIZE]
+    for start in range(0, len(changed_items), _EMBED_BATCH_SIZE):
+        batch_docs = changed_docs[start : start + _EMBED_BATCH_SIZE]
         batch_embeddings = await embed_texts(batch_docs, OPENAI_API_KEY)
         all_embeddings.extend(batch_embeddings)
-        logger.info("Embedded batch %d/%d", start + len(batch_docs), len(items))
+        logger.info("Embedded batch %d/%d", start + len(batch_docs), len(changed_items))
 
-    count = await upsert_roadmap_items(pool, items, all_embeddings, documents)
+    count = await upsert_roadmap_items(pool, changed_items, all_embeddings, changed_docs)
     logger.info("Ingestion complete — %d items upserted", count)
 
 
