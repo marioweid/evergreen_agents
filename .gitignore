@@ -12,6 +12,8 @@ wheels/
 # Secrets
 .env
 sa_*.json
+oauth_client.json
+token.json
 
 # Tools
 .ruff_cache/

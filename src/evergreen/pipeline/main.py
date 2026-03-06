@@ -17,7 +17,11 @@ from evergreen.pipeline.database import (
 )
 from evergreen.pipeline.embedder import build_document, embed_texts
 from evergreen.pipeline.fetcher import fetch_roadmap_items
-from evergreen.pipeline.google_drive import fetch_customer_folders, parse_battle_card
+from evergreen.pipeline.google_drive import (
+    fetch_customer_folders,
+    parse_battle_card,
+    write_report_to_drive,
+)
 from evergreen.shared.database import close_pool, get_pool
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -34,6 +38,8 @@ RUN_ON_STARTUP = os.getenv("RUN_ON_STARTUP", "true").lower() == "true"
 # Google Drive settings (optional — Drive sync is skipped if not configured)
 GOOGLE_SA_KEY_PATH = os.getenv("GOOGLE_SA_KEY_PATH", "sa_drive_agent.json")
 GOOGLE_DRIVE_CUSTOMERS_FOLDER_ID = os.getenv("GOOGLE_DRIVE_CUSTOMER_FOLDER_ID", "")
+# OAuth token for writing reports back to Drive (optional — skipped if not set)
+GOOGLE_OAUTH_TOKEN_PATH = os.getenv("GOOGLE_OAUTH_TOKEN_PATH", "")
 
 _EMBED_BATCH_SIZE = 100
 
@@ -130,6 +136,17 @@ async def run_drive_sync() -> None:
         await upsert_customer_documents(pool, customer_id, doc_rows)
 
     logger.info("Drive sync complete")
+
+
+async def write_customer_report_to_drive(
+    customer_name: str, folder_id: str, title: str, content: str
+) -> None:
+    """Write a generated report to the customer's Drive folder using OAuth credentials."""
+    if not GOOGLE_OAUTH_TOKEN_PATH:
+        logger.info("GOOGLE_OAUTH_TOKEN_PATH not set — skipping Drive report upload")
+        return
+    file_id = await write_report_to_drive(GOOGLE_OAUTH_TOKEN_PATH, folder_id, title, content)
+    logger.info("Uploaded report '%s' for '%s' (file_id=%s)", title, customer_name, file_id)
 
 
 async def main() -> None:
