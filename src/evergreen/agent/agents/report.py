@@ -8,6 +8,7 @@ from pydantic_ai import Agent, RunContext
 
 from evergreen.agent.tools.customer import get_customer, list_customers
 from evergreen.agent.tools.roadmap import list_recent_roadmap_items, search_roadmap
+from evergreen.pipeline.database import search_customer_documents
 from evergreen.pipeline.embedder import embed_query
 from evergreen.shared.models import Customer
 
@@ -22,10 +23,12 @@ report_agent: Agent[ReportDeps, str] = Agent(
     "openai:gpt-4o",
     deps_type=ReportDeps,
     system_prompt=(
-        "You generate weekly Microsoft 365 impact reports for customers. "
+        "You generate Microsoft 365 impact reports for customers. "
         "Each report should be professional, concise, and actionable. "
         "Structure: Executive Summary, Key Changes (with impact rating), Recommendations. "
-        "Tailor the content to the customer's specific M365 products and business context."
+        "Always call get_customer_context first to retrieve meeting notes and background on the "
+        "customer before deciding which roadmap changes are relevant. "
+        "Exclude changes that have no plausible relevance to the customer's products or business."
     ),
 )
 
@@ -80,6 +83,27 @@ async def list_customers_for_bulk_report(ctx: RunContext[ReportDeps]) -> list[di
     """List all customers to generate bulk reports."""
     customers: list[Customer] = await list_customers(ctx.deps.pool)
     return [c.model_dump(exclude={"created_at", "updated_at"}) for c in customers]
+
+
+@report_agent.tool
+async def get_customer_context(
+    ctx: RunContext[ReportDeps], customer_name: str, topic: str
+) -> list[dict]:
+    """Search meeting notes and other customer documents for relevant context.
+
+    Use this to understand the customer's pain points, goals, and history before
+    deciding which roadmap changes are worth including in the report.
+
+    Args:
+        customer_name: Name of the customer.
+        topic: What to search for, e.g. "Teams adoption challenges" or "SharePoint migration".
+    """
+    customer = await get_customer(ctx.deps.pool, customer_name)
+    if customer is None or customer.id is None:
+        return []
+    embedding = await embed_query(topic, ctx.deps.openai_api_key)
+    results = await search_customer_documents(ctx.deps.pool, customer.id, embedding, limit=5)
+    return results
 
 
 @report_agent.tool
