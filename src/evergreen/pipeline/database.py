@@ -1,4 +1,4 @@
-"""Write roadmap items and embeddings to PostgreSQL."""
+"""Write roadmap items, customer records, and embeddings to PostgreSQL."""
 
 
 import json
@@ -70,3 +70,111 @@ async def upsert_roadmap_items(
 
     logger.info("Upserted %d roadmap items", len(rows))
     return len(rows)
+
+
+async def upsert_customer_from_drive(
+    pool: asyncpg.Pool,
+    folder_id: str,
+    name: str,
+    description: str,
+    products_used: list[str],
+    priority: str,
+    notes: str | None,
+) -> int:
+    """Upsert a customer sourced from Google Drive. Returns the customer id."""
+    row = await pool.fetchrow(
+        """
+        INSERT INTO customers (name, drive_folder_id, description, products_used, priority, notes)
+        VALUES ($1, $2, $3, $4::jsonb, $5, $6)
+        ON CONFLICT (drive_folder_id) WHERE drive_folder_id IS NOT NULL DO UPDATE SET
+            name          = EXCLUDED.name,
+            description   = EXCLUDED.description,
+            products_used = EXCLUDED.products_used,
+            priority      = EXCLUDED.priority,
+            notes         = EXCLUDED.notes,
+            updated_at    = CURRENT_TIMESTAMP
+        WHERE
+            customers.description   IS DISTINCT FROM EXCLUDED.description OR
+            customers.products_used IS DISTINCT FROM EXCLUDED.products_used OR
+            customers.priority      IS DISTINCT FROM EXCLUDED.priority      OR
+            customers.notes         IS DISTINCT FROM EXCLUDED.notes
+        RETURNING id
+        """,
+        name,
+        folder_id,
+        description,
+        json.dumps(products_used),
+        priority,
+        notes,
+    )
+    if row is None:
+        # Nothing changed — fetch the existing id
+        row = await pool.fetchrow(
+            "SELECT id FROM customers WHERE drive_folder_id = $1", folder_id
+        )
+    return row["id"]
+
+
+async def get_customer_doc_modified_times(
+    pool: asyncpg.Pool, customer_id: int
+) -> dict[str, str]:
+    """Return {drive_file_id: drive_modified_at} for all stored docs of a customer."""
+    rows = await pool.fetch(
+        "SELECT drive_file_id, drive_modified_at FROM customer_documents WHERE customer_id = $1",
+        customer_id,
+    )
+    return {row["drive_file_id"]: row["drive_modified_at"] for row in rows}
+
+
+async def upsert_customer_documents(
+    pool: asyncpg.Pool,
+    customer_id: int,
+    docs: list[tuple[str, str, str, str, list[float]]],
+) -> int:
+    """Upsert customer documents with embeddings.
+
+    docs: list of (drive_file_id, title, content, drive_modified_at, embedding)
+    Returns count upserted.
+    """
+    query = """
+        INSERT INTO customer_documents
+            (customer_id, drive_file_id, title, content, drive_modified_at, embedding)
+        VALUES ($1, $2, $3, $4, $5, $6::vector)
+        ON CONFLICT (drive_file_id) DO UPDATE SET
+            title             = EXCLUDED.title,
+            content           = EXCLUDED.content,
+            drive_modified_at = EXCLUDED.drive_modified_at,
+            embedding         = EXCLUDED.embedding,
+            synced_at         = CURRENT_TIMESTAMP
+    """
+    rows = [(customer_id, file_id, title, content, modified_at, json.dumps(emb))
+            for file_id, title, content, modified_at, emb in docs]
+    async with pool.acquire() as conn:
+        await conn.executemany(query, rows)
+    logger.info("Upserted %d customer documents for customer_id=%d", len(rows), customer_id)
+    return len(rows)
+
+
+async def search_customer_documents(
+    pool: asyncpg.Pool,
+    customer_id: int,
+    embedding: list[float],
+    limit: int = 5,
+) -> list[dict]:
+    """Vector search over customer documents. Returns list of {title, content, similarity}."""
+    rows = await pool.fetch(
+        """
+        SELECT title, content, 1 - (embedding <=> $2::vector) AS similarity
+        FROM customer_documents
+        WHERE customer_id = $1
+        ORDER BY embedding <=> $2::vector
+        LIMIT $3
+        """,
+        customer_id,
+        json.dumps(embedding),
+        limit,
+    )
+    return [
+        {"title": row["title"], "content": row["content"], "similarity": float(row["similarity"])}
+        for row in rows
+    ]
