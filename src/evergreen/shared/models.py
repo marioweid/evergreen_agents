@@ -63,3 +63,9 @@ class WeeklyReport(BaseModel):
     customer: Customer
     report_text: str
     generated_at: datetime
+
+
+class RoadmapFilters(BaseModel):
+    products: list[str]
+    statuses: list[str]
+    release_phases: list[str]

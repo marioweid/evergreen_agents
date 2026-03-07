@@ -5,7 +5,7 @@ import json
 
 import asyncpg
 
-from evergreen.shared.models import RoadmapItem, RoadmapSearchResult
+from evergreen.shared.models import RoadmapFilters, RoadmapItem, RoadmapSearchResult
 
 
 def _row_to_item(row: asyncpg.Record) -> RoadmapItem:
@@ -98,6 +98,34 @@ async def list_recent_roadmap_items(
             limit,
         )
     return [_row_to_item(row) for row in rows]
+
+
+async def get_roadmap_filters(pool: asyncpg.Pool) -> RoadmapFilters:
+    """Return distinct products, statuses, and release phases present in the roadmap."""
+    products_rows = await pool.fetch(
+        """
+        SELECT DISTINCT jsonb_array_elements_text(products) AS value
+        FROM roadmap_items
+        WHERE products != '[]'
+        ORDER BY 1
+        """
+    )
+    status_rows = await pool.fetch(
+        "SELECT DISTINCT status AS value FROM roadmap_items WHERE status IS NOT NULL ORDER BY 1"
+    )
+    phase_rows = await pool.fetch(
+        """
+        SELECT DISTINCT release_phase AS value
+        FROM roadmap_items
+        WHERE release_phase IS NOT NULL
+        ORDER BY 1
+        """
+    )
+    return RoadmapFilters(
+        products=[r["value"] for r in products_rows],
+        statuses=[r["value"] for r in status_rows],
+        release_phases=[r["value"] for r in phase_rows],
+    )
 
 
 async def browse_roadmap(

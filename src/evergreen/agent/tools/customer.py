@@ -43,9 +43,7 @@ async def update_customer(pool: asyncpg.Pool, name: str, data: CustomerUpdate) -
     if existing is None:
         return None
 
-    updated = existing.model_copy(
-        update={k: v for k, v in data.model_dump().items() if v is not None}
-    )
+    updated = existing.model_copy(update=data.model_dump(exclude_unset=True))
     row = await pool.fetchrow(
         """
         UPDATE customers

@@ -20,10 +20,16 @@ from evergreen.agent.tools.customer import (
     list_customers,
     update_customer,
 )
-from evergreen.agent.tools.roadmap import browse_roadmap
+from evergreen.agent.tools.roadmap import browse_roadmap, get_roadmap_filters, get_roadmap_item
 from evergreen.pipeline.embedder import embed_query
 from evergreen.shared.database import close_pool, get_pool
-from evergreen.shared.models import Customer, CustomerCreate, CustomerUpdate, RoadmapItem
+from evergreen.shared.models import (
+    Customer,
+    CustomerCreate,
+    CustomerUpdate,
+    RoadmapFilters,
+    RoadmapItem,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -124,6 +130,21 @@ async def roadmap_list(
         release_phase=release_phase,
         limit=limit,
     )
+
+
+@app.get("/roadmap/filters", response_model=RoadmapFilters)
+async def roadmap_filters() -> RoadmapFilters:
+    pool = await get_pool(DATABASE_URL)
+    return await get_roadmap_filters(pool)
+
+
+@app.get("/roadmap/{item_id}", response_model=RoadmapItem)
+async def roadmap_get(item_id: int) -> RoadmapItem:
+    pool = await get_pool(DATABASE_URL)
+    item = await get_roadmap_item(pool, item_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail=f"Roadmap item {item_id} not found")
+    return item
 
 
 # --- Customer REST endpoints ---
