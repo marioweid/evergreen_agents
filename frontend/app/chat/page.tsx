@@ -5,16 +5,13 @@ import { Send, Bot, User } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
-import { streamQuery } from "@/lib/api"
+import { streamQuery, type ChatMessage } from "@/lib/api"
 
-interface Message {
-  role: "user" | "assistant"
-  content: string
-}
+type Message = ChatMessage
 
 export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([])
-  const [history, setHistory] = useState<unknown[]>([])
+  const [history, setHistory] = useState<ChatMessage[]>([])
   const [input, setInput] = useState("")
   const [streaming, setStreaming] = useState(false)
   const abortRef = useRef<AbortController | null>(null)

@@ -75,12 +75,17 @@ export const getRoadmapItem = (id: number) => request<RoadmapItem>(`/roadmap/${i
 
 // --- Streaming chat ---
 
+export interface ChatMessage {
+  role: "user" | "assistant"
+  content: string
+}
+
 export async function streamQuery(
   query: string,
-  history: unknown[],
+  history: ChatMessage[],
   onDelta: (delta: string) => void,
   signal?: AbortSignal,
-): Promise<unknown[]> {
+): Promise<ChatMessage[]> {
   const res = await fetch(`${BASE}/query/stream`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -92,7 +97,7 @@ export async function streamQuery(
   const reader = res.body.getReader()
   const decoder = new TextDecoder()
   let buffer = ""
-  let updatedHistory: unknown[] = history
+  let updatedHistory: ChatMessage[] = history
 
   while (true) {
     const { done, value } = await reader.read()
@@ -105,7 +110,7 @@ export async function streamQuery(
       const data = line.slice(6).trim()
       if (data === "[DONE]") return updatedHistory
       try {
-        const parsed = JSON.parse(data) as { delta?: string; history?: unknown[] }
+        const parsed = JSON.parse(data) as { delta?: string; history?: ChatMessage[] }
         if (parsed.delta !== undefined) onDelta(parsed.delta)
         if (parsed.history !== undefined) updatedHistory = parsed.history
       } catch {

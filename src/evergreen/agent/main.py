@@ -5,13 +5,14 @@ import logging
 import os
 from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import asynccontextmanager
+from typing import Literal
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+from openai import AsyncOpenAI
 from pydantic import BaseModel
-from pydantic_ai.messages import ModelMessagesTypeAdapter
 
 from evergreen.agent.agents.orchestrator import OrchestratorDeps, orchestrator
 from evergreen.agent.tools.customer import (
@@ -50,10 +51,14 @@ PORT = int(os.getenv("AGENT_PORT", "8000"))
 GOOGLE_OAUTH_TOKEN_PATH = os.getenv("GOOGLE_OAUTH_TOKEN_PATH", "")
 
 
+class ChatMessage(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str
+
+
 class QueryRequest(BaseModel):
     query: str
-    # Serialised pydantic-ai ModelMessage list from the previous turn
-    history: list[object] = []
+    history: list[ChatMessage] = []
 
 
 class QueryResponse(BaseModel):
@@ -95,16 +100,49 @@ async def query(request: QueryRequest) -> QueryResponse:
 
 # --- Streaming query ---
 
+_REWRITE_SYSTEM = (
+    "Rewrite the follow-up question as a fully self-contained question that can be "
+    "understood without any prior context. Incorporate relevant details from the "
+    "conversation history (e.g. entity names, topics) directly into the question. "
+    "Output only the rewritten question, nothing else."
+)
+
+
+async def _rewrite_query(query: str, history: list[ChatMessage], api_key: str) -> str:
+    """Rewrite a follow-up question into a standalone question using the chat history."""
+    if not history:
+        return query
+    client = AsyncOpenAI(api_key=api_key)
+    conv = "\n".join(f"{m.role}: {m.content}" for m in history)
+    response = await client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": _REWRITE_SYSTEM},
+            {"role": "user", "content": f"Conversation:\n{conv}\n\nFollow-up: {query}"},
+        ],
+        max_tokens=200,
+        temperature=0,
+    )
+    rewritten = (response.choices[0].message.content or query).strip()
+    logger.info("Query rewritten: %r → %r", query, rewritten)
+    return rewritten
+
 
 async def _sse_stream(
-    query: str, deps: OrchestratorDeps, history: list[object]
+    query: str, history: list[ChatMessage], deps: OrchestratorDeps
 ) -> AsyncGenerator[str]:
-    prior = ModelMessagesTypeAdapter.validate_python(history) if history else None
-    async with orchestrator.run_stream(query, deps=deps, message_history=prior) as result:
+    rewritten = await _rewrite_query(query, history, deps.openai_api_key)
+    full_response = ""
+    async with orchestrator.run_stream(rewritten, deps=deps) as result:
         async for chunk in result.stream_text(delta=True):
+            full_response += chunk
             yield f"data: {json.dumps({'delta': chunk})}\n\n"
-    all_messages = ModelMessagesTypeAdapter.dump_python(result.all_messages())
-    yield f"data: {json.dumps({'history': all_messages})}\n\n"
+    updated_history = [
+        *[m.model_dump() for m in history],
+        {"role": "user", "content": query},
+        {"role": "assistant", "content": full_response},
+    ]
+    yield f"data: {json.dumps({'history': updated_history})}\n\n"
     yield "data: [DONE]\n\n"
 
 
@@ -115,7 +153,7 @@ async def query_stream(request: QueryRequest) -> StreamingResponse:
         pool=pool, openai_api_key=OPENAI_API_KEY, token_path=GOOGLE_OAUTH_TOKEN_PATH
     )
     return StreamingResponse(
-        _sse_stream(request.query, deps, request.history),
+        _sse_stream(request.query, request.history, deps),
         media_type="text/event-stream",
         headers={"X-Accel-Buffering": "no"},
     )

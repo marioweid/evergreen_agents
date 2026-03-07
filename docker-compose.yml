@@ -22,13 +22,13 @@ services:
       context: .
       dockerfile: Dockerfile.pipeline
     container_name: evergreen-pipeline
+    env_file:
+      - .env
     environment:
       DATABASE_URL: postgresql://evergreen:evergreen@postgres:5432/evergreen
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
       # Cron schedule (default: every Sunday 02:00)
       PIPELINE_CRON: ${PIPELINE_CRON:-0 2 * * 0}
       RUN_ON_STARTUP: ${RUN_ON_STARTUP:-true}
-      GOOGLE_DRIVE_CUSTOMER_FOLDER_ID: ${GOOGLE_DRIVE_CUSTOMER_FOLDER_ID:-}
       # Fixed container path; bind-mount the actual key below
       GOOGLE_SA_KEY_PATH: /run/secrets/sa_key.json
     volumes:
@@ -46,9 +46,10 @@ services:
     container_name: evergreen-agent
     ports:
       - "8000:8000"
+    env_file:
+      - .env
     environment:
       DATABASE_URL: postgresql://evergreen:evergreen@postgres:5432/evergreen
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
       PUBLIC_HOST: ${PUBLIC_HOST:-localhost}
       AGENT_PORT: "8000"
       GOOGLE_OAUTH_TOKEN_PATH: ${GOOGLE_OAUTH_TOKEN_PATH:-}
@@ -56,8 +57,6 @@ services:
       postgres:
         condition: service_healthy
     restart: unless-stopped
-    env_file:
-      - .env
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
       interval: 10s
