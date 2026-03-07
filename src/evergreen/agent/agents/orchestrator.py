@@ -11,9 +11,10 @@ from evergreen.agent.agents.roadmap import RoadmapDeps, roadmap_agent
 
 
 class OrchestratorDeps:
-    def __init__(self, pool: asyncpg.Pool, openai_api_key: str) -> None:
+    def __init__(self, pool: asyncpg.Pool, openai_api_key: str, token_path: str = "") -> None:
         self.pool = pool
         self.openai_api_key = openai_api_key
+        self.token_path = token_path
 
 
 orchestrator: Agent[OrchestratorDeps, str] = Agent(
@@ -60,6 +61,10 @@ async def analyze_impact(ctx: RunContext[OrchestratorDeps], instruction: str) ->
 @orchestrator.tool
 async def generate_report(ctx: RunContext[OrchestratorDeps], instruction: str) -> str:
     """Delegate report generation to the report agent."""
-    deps = ReportDeps(pool=ctx.deps.pool, openai_api_key=ctx.deps.openai_api_key)
+    deps = ReportDeps(
+        pool=ctx.deps.pool,
+        openai_api_key=ctx.deps.openai_api_key,
+        token_path=ctx.deps.token_path,
+    )
     result = await report_agent.run(instruction, deps=deps)
     return result.output

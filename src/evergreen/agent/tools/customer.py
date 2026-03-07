@@ -77,6 +77,7 @@ def _row_to_customer(row: asyncpg.Record) -> Customer:
         products_used=json.loads(row["products_used"] or "[]"),
         priority=row["priority"],
         notes=row["notes"],
+        drive_folder_id=row["drive_folder_id"],
         created_at=row["created_at"],
         updated_at=row["updated_at"],
     )

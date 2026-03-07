@@ -14,6 +14,7 @@ class Customer(BaseModel):
     products_used: list[str]
     priority: Literal["low", "medium", "high"] = "medium"
     notes: str | None = None
+    drive_folder_id: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
 

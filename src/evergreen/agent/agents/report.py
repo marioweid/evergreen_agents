@@ -10,13 +10,15 @@ from evergreen.agent.tools.customer import get_customer, list_customers
 from evergreen.agent.tools.roadmap import list_recent_roadmap_items, search_roadmap
 from evergreen.pipeline.database import search_customer_documents
 from evergreen.pipeline.embedder import embed_query
+from evergreen.pipeline.google_drive import write_report_to_drive
 from evergreen.shared.models import Customer
 
 
 class ReportDeps:
-    def __init__(self, pool: asyncpg.Pool, openai_api_key: str) -> None:
+    def __init__(self, pool: asyncpg.Pool, openai_api_key: str, token_path: str = "") -> None:
         self.pool = pool
         self.openai_api_key = openai_api_key
+        self.token_path = token_path
 
 
 report_agent: Agent[ReportDeps, str] = Agent(
@@ -28,7 +30,10 @@ report_agent: Agent[ReportDeps, str] = Agent(
         "Structure: Executive Summary, Key Changes (with impact rating), Recommendations. "
         "Always call get_customer_context first to retrieve meeting notes and background on the "
         "customer before deciding which roadmap changes are relevant. "
-        "Exclude changes that have no plausible relevance to the customer's products or business."
+        "Exclude changes that have no plausible relevance to the customer's products or business. "
+        "After composing the report text, call save_report_to_drive to persist it in the "
+        "customer's Google Drive folder. If the customer has no drive_folder_id or Drive is not "
+        "configured, skip that step and note it in your response."
     ),
 )
 
@@ -110,3 +115,32 @@ async def get_customer_context(
 async def get_current_date(ctx: RunContext[ReportDeps]) -> str:
     """Get today's date for the report header."""
     return datetime.now().strftime("%Y-%m-%d")
+
+
+@report_agent.tool
+async def save_report_to_drive(
+    ctx: RunContext[ReportDeps], customer_name: str, title: str, content: str
+) -> str:
+    """Save the generated report as a Google Doc in the customer's Drive folder.
+
+    Args:
+        customer_name: Name of the customer (used to look up their Drive folder).
+        title: Document title, e.g. "Evergreen Report – Contoso – 2026-03-07".
+        content: Full report text to write.
+
+    Returns:
+        A message with the Drive file id, or an explanation if saving was skipped.
+    """
+    if not ctx.deps.token_path:
+        return "Drive upload skipped: GOOGLE_OAUTH_TOKEN_PATH is not configured."
+
+    customer = await get_customer(ctx.deps.pool, customer_name)
+    if customer is None:
+        return f"Drive upload skipped: customer '{customer_name}' not found."
+    if not customer.drive_folder_id:
+        return f"Drive upload skipped: customer '{customer_name}' has no Drive folder linked."
+
+    file_id = await write_report_to_drive(
+        ctx.deps.token_path, customer.drive_folder_id, title, content
+    )
+    return f"Report saved to Drive (file_id={file_id})."
