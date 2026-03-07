@@ -18,6 +18,7 @@ from evergreen.pipeline.database import (
 from evergreen.pipeline.embedder import build_document, embed_texts
 from evergreen.pipeline.fetcher import fetch_roadmap_items
 from evergreen.pipeline.google_drive import (
+    BattleCard,
     fetch_customer_folders,
     parse_battle_card,
     write_report_to_drive,
@@ -97,16 +98,16 @@ async def run_drive_sync() -> None:
         parsed = (
             parse_battle_card(folder.battle_card.content)
             if folder.battle_card
-            else {"products_used": [], "priority": "medium", "description": "", "notes": None}
+            else BattleCard(products_used=[], priority="medium", description="", notes=None)
         )
         customer_id = await upsert_customer_from_drive(
             pool,
             folder_id=folder.folder_id,
             name=folder.name,
-            description=parsed["description"],
-            products_used=parsed["products_used"],
-            priority=parsed["priority"],
-            notes=parsed["notes"],
+            description=parsed.description,
+            products_used=parsed.products_used,
+            priority=parsed.priority,
+            notes=parsed.notes,
         )
         logger.info("Upserted customer '%s' (id=%d)", folder.name, customer_id)
 

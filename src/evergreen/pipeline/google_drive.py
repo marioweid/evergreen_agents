@@ -77,12 +77,20 @@ def _export_text_sync(service, file_id: str) -> str:
     return buf.getvalue().decode("utf-8")
 
 
+@dataclass
+class BattleCard:
+    products_used: list[str]
+    priority: str
+    description: str
+    notes: str | None
+
+
 def _is_battle_card(title: str) -> bool:
     normalized = title.lower().replace(" ", "_").replace("-", "_")
     return "battle_card" in normalized or normalized.startswith("battle")
 
 
-def parse_battle_card(text: str) -> dict:
+def parse_battle_card(text: str) -> BattleCard:
     """Parse a battle card doc into structured fields.
 
     Expects sections: Products Used, Priority, Description, Notes.
@@ -103,12 +111,12 @@ def parse_battle_card(text: str) -> dict:
     description = extract_section("Description")
     notes = extract_section("Notes") or None
 
-    return {
-        "products_used": products,
-        "priority": priority,
-        "description": description or "Customer imported from Google Drive.",
-        "notes": notes,
-    }
+    return BattleCard(
+        products_used=products,
+        priority=priority,
+        description=description or "Customer imported from Google Drive.",
+        notes=notes,
+    )
 
 
 async def fetch_customer_folders(sa_key_path: str, root_folder_id: str) -> list[CustomerFolder]:
