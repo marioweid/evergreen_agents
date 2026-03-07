@@ -1,14 +1,15 @@
 CREATE EXTENSION IF NOT EXISTS vector;
 
 CREATE TABLE IF NOT EXISTS customers (
-    id           SERIAL PRIMARY KEY,
-    name         TEXT NOT NULL UNIQUE,
-    description  TEXT NOT NULL,
-    products_used JSONB NOT NULL DEFAULT '[]',
-    priority     TEXT NOT NULL DEFAULT 'medium',
-    notes        TEXT,
-    created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    id             SERIAL PRIMARY KEY,
+    name           TEXT NOT NULL UNIQUE,
+    description    TEXT NOT NULL,
+    products_used  JSONB NOT NULL DEFAULT '[]',
+    priority       TEXT NOT NULL DEFAULT 'medium',
+    notes          TEXT,
+    drive_folder_id TEXT UNIQUE,
+    created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS roadmap_items (
@@ -26,6 +27,18 @@ CREATE TABLE IF NOT EXISTS roadmap_items (
     embedding       vector(1536),
     created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS customer_documents (
+    id               SERIAL PRIMARY KEY,
+    customer_id      INTEGER NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+    drive_file_id    TEXT NOT NULL UNIQUE,
+    title            TEXT NOT NULL,
+    content          TEXT NOT NULL,
+    drive_modified_at TEXT NOT NULL,
+    -- OpenAI text-embedding-3-small: 1536 dimensions
+    embedding        vector(1536),
+    synced_at        TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Created after initial data load for performance
