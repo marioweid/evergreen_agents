@@ -1,13 +1,15 @@
 """Agent service entry point."""
 
+import json
 import logging
 import os
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import asynccontextmanager
 
 import uvicorn
-from fastapi import FastAPI, HTTPException, Response
+from fastapi import FastAPI, HTTPException, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from evergreen.agent.agents.orchestrator import OrchestratorDeps, orchestrator
@@ -18,8 +20,10 @@ from evergreen.agent.tools.customer import (
     list_customers,
     update_customer,
 )
+from evergreen.agent.tools.roadmap import browse_roadmap
+from evergreen.pipeline.embedder import embed_query
 from evergreen.shared.database import close_pool, get_pool
-from evergreen.shared.models import Customer, CustomerCreate, CustomerUpdate
+from evergreen.shared.models import Customer, CustomerCreate, CustomerUpdate, RoadmapItem
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -70,6 +74,56 @@ async def query(request: QueryRequest) -> QueryResponse:
     )
     result = await orchestrator.run(request.query, deps=deps)
     return QueryResponse(answer=result.output)
+
+
+# --- Streaming query ---
+
+
+async def _sse_stream(query: str, deps: OrchestratorDeps) -> AsyncGenerator[str]:
+    async with orchestrator.run_stream(query, deps=deps) as result:
+        async for chunk in result.stream_text(delta=True):
+            yield f"data: {json.dumps({'delta': chunk})}\n\n"
+    yield "data: [DONE]\n\n"
+
+
+@app.post("/query/stream")
+async def query_stream(request: QueryRequest) -> StreamingResponse:
+    pool = await get_pool(DATABASE_URL)
+    deps = OrchestratorDeps(
+        pool=pool, openai_api_key=OPENAI_API_KEY, token_path=GOOGLE_OAUTH_TOKEN_PATH
+    )
+    return StreamingResponse(
+        _sse_stream(request.query, deps),
+        media_type="text/event-stream",
+        headers={"X-Accel-Buffering": "no"},
+    )
+
+
+# --- Roadmap REST endpoints ---
+
+
+@app.get("/roadmap", response_model=list[RoadmapItem])
+async def roadmap_list(
+    q: str | None = Query(default=None, description="Semantic search query"),
+    product: str | None = Query(default=None, description="Filter by product (substring)"),
+    status: str | None = Query(default=None, description="Filter by status (substring)"),
+    release_phase: str | None = Query(
+        default=None, description="Filter by release phase (substring)"
+    ),
+    limit: int = Query(default=50, ge=1, le=200),
+) -> list[RoadmapItem]:
+    pool = await get_pool(DATABASE_URL)
+    embedding: list[float] | None = None
+    if q:
+        embedding = await embed_query(q, OPENAI_API_KEY)
+    return await browse_roadmap(
+        pool,
+        embedding=embedding,
+        product=product,
+        status=status,
+        release_phase=release_phase,
+        limit=limit,
+    )
 
 
 # --- Customer REST endpoints ---
