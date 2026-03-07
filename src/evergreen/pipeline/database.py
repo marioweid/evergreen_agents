@@ -1,6 +1,5 @@
 """Write roadmap items, customer records, and embeddings to PostgreSQL."""
 
-
 import json
 import logging
 
@@ -109,15 +108,11 @@ async def upsert_customer_from_drive(
     )
     if row is None:
         # Nothing changed — fetch the existing id
-        row = await pool.fetchrow(
-            "SELECT id FROM customers WHERE drive_folder_id = $1", folder_id
-        )
+        row = await pool.fetchrow("SELECT id FROM customers WHERE drive_folder_id = $1", folder_id)
     return row["id"]
 
 
-async def get_customer_doc_modified_times(
-    pool: asyncpg.Pool, customer_id: int
-) -> dict[str, str]:
+async def get_customer_doc_modified_times(pool: asyncpg.Pool, customer_id: int) -> dict[str, str]:
     """Return {drive_file_id: drive_modified_at} for all stored docs of a customer."""
     rows = await pool.fetch(
         "SELECT drive_file_id, drive_modified_at FROM customer_documents WHERE customer_id = $1",
@@ -147,8 +142,10 @@ async def upsert_customer_documents(
             embedding         = EXCLUDED.embedding,
             synced_at         = CURRENT_TIMESTAMP
     """
-    rows = [(customer_id, file_id, title, content, modified_at, json.dumps(emb))
-            for file_id, title, content, modified_at, emb in docs]
+    rows = [
+        (customer_id, file_id, title, content, modified_at, json.dumps(emb))
+        for file_id, title, content, modified_at, emb in docs
+    ]
     async with pool.acquire() as conn:
         await conn.executemany(query, rows)
     logger.info("Upserted %d customer documents for customer_id=%d", len(rows), customer_id)

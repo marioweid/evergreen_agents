@@ -35,9 +35,7 @@ class CustomerFolder:
 
 
 def _build_service(sa_key_path: str):
-    creds = service_account.Credentials.from_service_account_file(
-        sa_key_path, scopes=_SCOPES_READ
-    )
+    creds = service_account.Credentials.from_service_account_file(sa_key_path, scopes=_SCOPES_READ)
     return build("drive", "v3", credentials=creds, cache_discovery=False)
 
 
@@ -129,9 +127,7 @@ async def fetch_customer_folders(sa_key_path: str, root_folder_id: str) -> list[
     folders: list[CustomerFolder] = []
     for f in raw_folders:
         folder = CustomerFolder(folder_id=f["id"], name=f["name"])
-        raw_docs = await asyncio.to_thread(
-            _list_children_sync, service, f["id"], _MIME_DOC
-        )
+        raw_docs = await asyncio.to_thread(_list_children_sync, service, f["id"], _MIME_DOC)
         for doc in raw_docs:
             content = await asyncio.to_thread(_export_text_sync, service, doc["id"])
             drive_doc = DriveDoc(
@@ -171,9 +167,7 @@ def _write_report_sync(token_path: str, folder_id: str, title: str, content: str
     return file["id"]
 
 
-async def write_report_to_drive(
-    token_path: str, folder_id: str, title: str, content: str
-) -> str:
+async def write_report_to_drive(token_path: str, folder_id: str, title: str, content: str) -> str:
     """Create a Google Doc report in Drive using OAuth user credentials.
 
     Args:

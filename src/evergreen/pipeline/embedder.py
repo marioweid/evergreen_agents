@@ -1,6 +1,5 @@
 """Generate text embeddings using OpenAI text-embedding-3-small."""
 
-
 from openai import AsyncOpenAI
 
 _MODEL = "text-embedding-3-small"

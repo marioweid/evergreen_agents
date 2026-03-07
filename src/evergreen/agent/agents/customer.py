@@ -1,6 +1,5 @@
 """Customer management sub-agent."""
 
-
 import asyncpg
 from pydantic_ai import Agent, RunContext
 

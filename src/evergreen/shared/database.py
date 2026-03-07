@@ -1,6 +1,5 @@
 """Shared async database connection pool."""
 
-
 import asyncpg
 
 _pool: asyncpg.Pool | None = None

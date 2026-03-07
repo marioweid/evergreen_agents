@@ -1,6 +1,5 @@
 """Shared Pydantic models for database entities."""
 
-
 from datetime import datetime
 from typing import Literal
 

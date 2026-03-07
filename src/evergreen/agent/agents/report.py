@@ -1,6 +1,5 @@
 """Report generation sub-agent — weekly per-customer impact reports."""
 
-
 from datetime import datetime
 
 import asyncpg

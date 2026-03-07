@@ -1,6 +1,5 @@
 """Tools for searching and querying the M365 roadmap."""
 
-
 import json
 
 import asyncpg

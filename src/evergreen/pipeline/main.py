@@ -1,6 +1,5 @@
 """Pipeline entry point — fetches M365 roadmap items on a schedule."""
 
-
 import asyncio
 import logging
 import os
@@ -116,17 +115,14 @@ async def run_drive_sync() -> None:
 
         stored_times = await get_customer_doc_modified_times(pool, customer_id)
         changed_docs = [
-            doc for doc in folder.documents
-            if stored_times.get(doc.file_id) != doc.modified_at
+            doc for doc in folder.documents if stored_times.get(doc.file_id) != doc.modified_at
         ]
 
         if not changed_docs:
             logger.info("No changed documents for '%s'", folder.name)
             continue
 
-        logger.info(
-            "%d changed documents to embed for '%s'", len(changed_docs), folder.name
-        )
+        logger.info("%d changed documents to embed for '%s'", len(changed_docs), folder.name)
         texts = [f"Title: {d.title}\n\n{d.content}" for d in changed_docs]
         embeddings = await embed_texts(texts, OPENAI_API_KEY)
 

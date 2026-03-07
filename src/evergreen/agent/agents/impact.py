@@ -1,6 +1,5 @@
 """Impact analysis sub-agent — maps roadmap changes to customers."""
 
-
 import asyncpg
 from pydantic_ai import Agent, RunContext
 

@@ -1,6 +1,5 @@
 """Tools for customer CRUD operations."""
 
-
 import json
 
 import asyncpg
