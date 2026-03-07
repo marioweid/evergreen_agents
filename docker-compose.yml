@@ -28,12 +28,16 @@ services:
       # Cron schedule (default: every Sunday 02:00)
       PIPELINE_CRON: ${PIPELINE_CRON:-0 2 * * 0}
       RUN_ON_STARTUP: ${RUN_ON_STARTUP:-true}
+      GOOGLE_DRIVE_CUSTOMER_FOLDER_ID: ${GOOGLE_DRIVE_CUSTOMER_FOLDER_ID:-}
+      # Fixed container path; bind-mount the actual key below
+      GOOGLE_SA_KEY_PATH: /run/secrets/sa_key.json
+    volumes:
+      # Mount SA key read-only if the host path is set; falls back to /dev/null if unset
+      - ${GOOGLE_SA_KEY_PATH:-/dev/null}:/run/secrets/sa_key.json:ro
     depends_on:
       postgres:
         condition: service_healthy
     restart: unless-stopped
-    env_file:
-      - .env
 
   agent:
     build:
@@ -55,7 +59,7 @@ services:
     env_file:
       - .env
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
       interval: 10s
       timeout: 5s
       retries: 3

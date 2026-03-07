@@ -87,6 +87,10 @@ async def run_drive_sync() -> None:
         logger.info("GOOGLE_DRIVE_CUSTOMERS_FOLDER_ID not set — skipping Drive sync")
         return
 
+    if not os.path.isfile(GOOGLE_SA_KEY_PATH):
+        logger.warning("SA key file not found at %s — skipping Drive sync", GOOGLE_SA_KEY_PATH)
+        return
+
     logger.info("Starting Google Drive customer sync")
     pool = await get_pool(DATABASE_URL)
 
