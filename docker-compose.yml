@@ -60,5 +60,20 @@ services:
       timeout: 5s
       retries: 3
 
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+      args:
+        # Must be reachable from the user's browser — keep as localhost when running locally
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+    container_name: evergreen-frontend
+    ports:
+      - "3000:3000"
+    depends_on:
+      agent:
+        condition: service_healthy
+    restart: unless-stopped
+
 volumes:
   postgres_data:
