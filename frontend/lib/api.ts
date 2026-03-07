@@ -77,13 +77,14 @@ export const getRoadmapItem = (id: number) => request<RoadmapItem>(`/roadmap/${i
 
 export async function streamQuery(
   query: string,
+  history: unknown[],
   onDelta: (delta: string) => void,
   signal?: AbortSignal,
-): Promise<void> {
+): Promise<unknown[]> {
   const res = await fetch(`${BASE}/query/stream`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ query }),
+    body: JSON.stringify({ query, history }),
     signal,
   })
   if (!res.ok || !res.body) throw new Error(`${res.status}: stream failed`)
@@ -91,6 +92,7 @@ export async function streamQuery(
   const reader = res.body.getReader()
   const decoder = new TextDecoder()
   let buffer = ""
+  let updatedHistory: unknown[] = history
 
   while (true) {
     const { done, value } = await reader.read()
@@ -101,13 +103,15 @@ export async function streamQuery(
     for (const line of lines) {
       if (!line.startsWith("data: ")) continue
       const data = line.slice(6).trim()
-      if (data === "[DONE]") return
+      if (data === "[DONE]") return updatedHistory
       try {
-        const parsed = JSON.parse(data) as { delta: string }
-        onDelta(parsed.delta)
+        const parsed = JSON.parse(data) as { delta?: string; history?: unknown[] }
+        if (parsed.delta !== undefined) onDelta(parsed.delta)
+        if (parsed.history !== undefined) updatedHistory = parsed.history
       } catch {
         // skip malformed chunks
       }
     }
   }
+  return updatedHistory
 }

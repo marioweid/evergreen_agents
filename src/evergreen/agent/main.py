@@ -11,6 +11,7 @@ from fastapi import FastAPI, HTTPException, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+from pydantic_ai.messages import ModelMessagesTypeAdapter
 
 from evergreen.agent.agents.orchestrator import OrchestratorDeps, orchestrator
 from evergreen.agent.tools.customer import (
@@ -51,6 +52,8 @@ GOOGLE_OAUTH_TOKEN_PATH = os.getenv("GOOGLE_OAUTH_TOKEN_PATH", "")
 
 class QueryRequest(BaseModel):
     query: str
+    # Serialised pydantic-ai ModelMessage list from the previous turn
+    history: list[object] = []
 
 
 class QueryResponse(BaseModel):
@@ -93,10 +96,15 @@ async def query(request: QueryRequest) -> QueryResponse:
 # --- Streaming query ---
 
 
-async def _sse_stream(query: str, deps: OrchestratorDeps) -> AsyncGenerator[str]:
-    async with orchestrator.run_stream(query, deps=deps) as result:
+async def _sse_stream(
+    query: str, deps: OrchestratorDeps, history: list[object]
+) -> AsyncGenerator[str]:
+    prior = ModelMessagesTypeAdapter.validate_python(history) if history else None
+    async with orchestrator.run_stream(query, deps=deps, message_history=prior) as result:
         async for chunk in result.stream_text(delta=True):
             yield f"data: {json.dumps({'delta': chunk})}\n\n"
+    all_messages = ModelMessagesTypeAdapter.dump_python(result.all_messages())
+    yield f"data: {json.dumps({'history': all_messages})}\n\n"
     yield "data: [DONE]\n\n"
 
 
@@ -107,7 +115,7 @@ async def query_stream(request: QueryRequest) -> StreamingResponse:
         pool=pool, openai_api_key=OPENAI_API_KEY, token_path=GOOGLE_OAUTH_TOKEN_PATH
     )
     return StreamingResponse(
-        _sse_stream(request.query, deps),
+        _sse_stream(request.query, deps, request.history),
         media_type="text/event-stream",
         headers={"X-Accel-Buffering": "no"},
     )

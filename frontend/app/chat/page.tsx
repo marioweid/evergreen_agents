@@ -14,6 +14,7 @@ interface Message {
 
 export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([])
+  const [history, setHistory] = useState<unknown[]>([])
   const [input, setInput] = useState("")
   const [streaming, setStreaming] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
@@ -33,8 +34,9 @@ export default function ChatPage() {
     setMessages((prev) => [...prev, { role: "assistant", content: "" }])
 
     try {
-      await streamQuery(
+      const updatedHistory = await streamQuery(
         query,
+        history,
         (delta) => {
           setMessages((prev) => {
             const next = [...prev]
@@ -48,6 +50,7 @@ export default function ChatPage() {
         },
         controller.signal,
       )
+      setHistory(updatedHistory)
     } catch (err) {
       if ((err as Error).name !== "AbortError") {
         setMessages((prev) => {
