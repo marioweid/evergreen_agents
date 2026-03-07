@@ -8,7 +8,7 @@ from pydantic_ai import Agent, RunContext
 
 from evergreen.agent.tools.customer import get_customer, list_customers
 from evergreen.agent.tools.roadmap import list_recent_roadmap_items, search_roadmap
-from evergreen.pipeline.database import search_customer_documents
+from evergreen.pipeline.database import insert_report, search_customer_documents
 from evergreen.pipeline.embedder import embed_query
 from evergreen.pipeline.google_drive import write_report_to_drive
 from evergreen.shared.models import Customer
@@ -31,9 +31,9 @@ report_agent: Agent[ReportDeps, str] = Agent(
         "Always call get_customer_context first to retrieve meeting notes and background on the "
         "customer before deciding which roadmap changes are relevant. "
         "Exclude changes that have no plausible relevance to the customer's products or business. "
-        "After composing the report text, call save_report_to_drive to persist it in the "
-        "customer's Google Drive folder. If the customer has no drive_folder_id or Drive is not "
-        "configured, skip that step and note it in your response."
+        "After composing the report text, call save_report to persist it. "
+        "The report is always saved to the database. It is also uploaded to the customer's "
+        "Google Drive folder when Drive is configured and the customer has a folder linked."
     ),
 )
 
@@ -118,29 +118,34 @@ async def get_current_date(ctx: RunContext[ReportDeps]) -> str:
 
 
 @report_agent.tool
-async def save_report_to_drive(
+async def save_report(
     ctx: RunContext[ReportDeps], customer_name: str, title: str, content: str
 ) -> str:
-    """Save the generated report as a Google Doc in the customer's Drive folder.
+    """Save the generated report to the database and optionally to Google Drive.
+
+    Always persists to the database. Uploads to Drive when GOOGLE_OAUTH_TOKEN_PATH
+    is configured and the customer has a drive_folder_id.
 
     Args:
-        customer_name: Name of the customer (used to look up their Drive folder).
+        customer_name: Name of the customer.
         title: Document title, e.g. "Evergreen Report – Contoso – 2026-03-07".
-        content: Full report text to write.
+        content: Full report text.
 
     Returns:
-        A message with the Drive file id, or an explanation if saving was skipped.
+        Summary of what was saved and where.
     """
-    if not ctx.deps.token_path:
-        return "Drive upload skipped: GOOGLE_OAUTH_TOKEN_PATH is not configured."
-
     customer = await get_customer(ctx.deps.pool, customer_name)
-    if customer is None:
-        return f"Drive upload skipped: customer '{customer_name}' not found."
-    if not customer.drive_folder_id:
-        return f"Drive upload skipped: customer '{customer_name}' has no Drive folder linked."
+    if customer is None or customer.id is None:
+        return f"Save failed: customer '{customer_name}' not found."
 
-    file_id = await write_report_to_drive(
-        ctx.deps.token_path, customer.drive_folder_id, title, content
-    )
-    return f"Report saved to Drive (file_id={file_id})."
+    drive_file_id: str | None = None
+    drive_note = "Drive upload skipped (not configured or no folder linked)."
+
+    if ctx.deps.token_path and customer.drive_folder_id:
+        drive_file_id = await write_report_to_drive(
+            ctx.deps.token_path, customer.drive_folder_id, title, content
+        )
+        drive_note = f"Uploaded to Drive (file_id={drive_file_id})."
+
+    report = await insert_report(ctx.deps.pool, customer.id, title, content, drive_file_id)
+    return f"Report saved to database (id={report.id}). {drive_note}"

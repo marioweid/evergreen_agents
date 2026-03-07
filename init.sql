@@ -41,6 +41,15 @@ CREATE TABLE IF NOT EXISTS customer_documents (
     synced_at        TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS reports (
+    id            SERIAL PRIMARY KEY,
+    customer_id   INTEGER NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+    title         TEXT NOT NULL,
+    content       TEXT NOT NULL,
+    drive_file_id TEXT,
+    generated_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Partial unique index required by ON CONFLICT (drive_folder_id) WHERE drive_folder_id IS NOT NULL
 -- in upsert_customer_from_drive. A plain UNIQUE constraint does not satisfy this ON CONFLICT form.
 CREATE UNIQUE INDEX IF NOT EXISTS customers_drive_folder_id_idx

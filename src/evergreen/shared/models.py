@@ -69,3 +69,12 @@ class RoadmapFilters(BaseModel):
     products: list[str]
     statuses: list[str]
     release_phases: list[str]
+
+
+class Report(BaseModel):
+    id: int
+    customer_id: int
+    title: str
+    content: str
+    drive_file_id: str | None = None
+    generated_at: datetime

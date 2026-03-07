@@ -6,7 +6,7 @@ import logging
 
 import asyncpg
 
-from evergreen.shared.models import RoadmapItem
+from evergreen.shared.models import Report, RoadmapItem
 
 logger = logging.getLogger(__name__)
 
@@ -153,6 +153,59 @@ async def upsert_customer_documents(
         await conn.executemany(query, rows)
     logger.info("Upserted %d customer documents for customer_id=%d", len(rows), customer_id)
     return len(rows)
+
+
+async def insert_report(
+    pool: asyncpg.Pool,
+    customer_id: int,
+    title: str,
+    content: str,
+    drive_file_id: str | None,
+) -> Report:
+    """Insert a generated report and return the stored record."""
+    row = await pool.fetchrow(
+        """
+        INSERT INTO reports (customer_id, title, content, drive_file_id)
+        VALUES ($1, $2, $3, $4)
+        RETURNING id, customer_id, title, content, drive_file_id, generated_at
+        """,
+        customer_id,
+        title,
+        content,
+        drive_file_id,
+    )
+    return Report(
+        id=row["id"],
+        customer_id=row["customer_id"],
+        title=row["title"],
+        content=row["content"],
+        drive_file_id=row["drive_file_id"],
+        generated_at=row["generated_at"],
+    )
+
+
+async def list_customer_reports(pool: asyncpg.Pool, customer_id: int) -> list[Report]:
+    """Return all reports for a customer, newest first."""
+    rows = await pool.fetch(
+        """
+        SELECT id, customer_id, title, content, drive_file_id, generated_at
+        FROM reports
+        WHERE customer_id = $1
+        ORDER BY generated_at DESC
+        """,
+        customer_id,
+    )
+    return [
+        Report(
+            id=row["id"],
+            customer_id=row["customer_id"],
+            title=row["title"],
+            content=row["content"],
+            drive_file_id=row["drive_file_id"],
+            generated_at=row["generated_at"],
+        )
+        for row in rows
+    ]
 
 
 async def search_customer_documents(

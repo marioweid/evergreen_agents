@@ -20,15 +20,23 @@ from evergreen.agent.tools.customer import (
     list_customers,
     update_customer,
 )
-from evergreen.agent.tools.roadmap import browse_roadmap, get_roadmap_filters, get_roadmap_item
+from evergreen.agent.tools.roadmap import (
+    browse_roadmap,
+    get_roadmap_filters,
+    get_roadmap_item,
+    search_roadmap,
+)
+from evergreen.pipeline.database import list_customer_reports
 from evergreen.pipeline.embedder import embed_query
 from evergreen.shared.database import close_pool, get_pool
 from evergreen.shared.models import (
     Customer,
     CustomerCreate,
     CustomerUpdate,
+    Report,
     RoadmapFilters,
     RoadmapItem,
+    RoadmapSearchResult,
 )
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -187,6 +195,29 @@ async def customers_delete(name: str) -> Response:
     if not deleted:
         raise HTTPException(status_code=404, detail=f"Customer '{name}' not found")
     return Response(status_code=204)
+
+
+@app.get("/customers/{name}/reports", response_model=list[Report])
+async def customers_reports(name: str) -> list[Report]:
+    pool = await get_pool(DATABASE_URL)
+    customer = await get_customer(pool, name)
+    if customer is None or customer.id is None:
+        raise HTTPException(status_code=404, detail=f"Customer '{name}' not found")
+    return await list_customer_reports(pool, customer.id)
+
+
+@app.get("/customers/{name}/impact", response_model=list[RoadmapSearchResult])
+async def customers_impact(
+    name: str,
+    limit: int = Query(default=10, ge=1, le=50),
+) -> list[RoadmapSearchResult]:
+    pool = await get_pool(DATABASE_URL)
+    customer = await get_customer(pool, name)
+    if customer is None:
+        raise HTTPException(status_code=404, detail=f"Customer '{name}' not found")
+    query_text = " ".join(customer.products_used) or customer.description
+    embedding = await embed_query(query_text, OPENAI_API_KEY)
+    return await search_roadmap(pool, embedding, limit=limit)
 
 
 if __name__ == "__main__":
