@@ -158,18 +158,20 @@ async def insert_report(
     title: str,
     content: str,
     drive_file_id: str | None,
+    status: str = "draft",
 ) -> Report:
     """Insert a generated report and return the stored record."""
     row = await pool.fetchrow(
         """
-        INSERT INTO reports (customer_id, title, content, drive_file_id)
-        VALUES ($1, $2, $3, $4)
-        RETURNING id, customer_id, title, content, drive_file_id, generated_at
+        INSERT INTO reports (customer_id, title, content, drive_file_id, status)
+        VALUES ($1, $2, $3, $4, $5)
+        RETURNING id, customer_id, title, content, drive_file_id, status, generated_at
         """,
         customer_id,
         title,
         content,
         drive_file_id,
+        status,
     )
     return Report(
         id=row["id"],
@@ -177,6 +179,29 @@ async def insert_report(
         title=row["title"],
         content=row["content"],
         drive_file_id=row["drive_file_id"],
+        status=row["status"],
+        generated_at=row["generated_at"],
+    )
+
+
+async def approve_report(pool: asyncpg.Pool, report_id: int) -> Report | None:
+    """Set a report's status to approved. Returns None if not found."""
+    row = await pool.fetchrow(
+        """
+        UPDATE reports SET status = 'approved' WHERE id = $1
+        RETURNING id, customer_id, title, content, drive_file_id, status, generated_at
+        """,
+        report_id,
+    )
+    if row is None:
+        return None
+    return Report(
+        id=row["id"],
+        customer_id=row["customer_id"],
+        title=row["title"],
+        content=row["content"],
+        drive_file_id=row["drive_file_id"],
+        status=row["status"],
         generated_at=row["generated_at"],
     )
 
@@ -185,7 +210,7 @@ async def list_customer_reports(pool: asyncpg.Pool, customer_id: int) -> list[Re
     """Return all reports for a customer, newest first."""
     rows = await pool.fetch(
         """
-        SELECT id, customer_id, title, content, drive_file_id, generated_at
+        SELECT id, customer_id, title, content, drive_file_id, status, generated_at
         FROM reports
         WHERE customer_id = $1
         ORDER BY generated_at DESC
@@ -199,6 +224,7 @@ async def list_customer_reports(pool: asyncpg.Pool, customer_id: int) -> list[Re
             title=row["title"],
             content=row["content"],
             drive_file_id=row["drive_file_id"],
+            status=row["status"],
             generated_at=row["generated_at"],
         )
         for row in rows

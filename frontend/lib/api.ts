@@ -3,6 +3,7 @@ import type {
   CustomerCreate,
   CustomerUpdate,
   Report,
+  ReportPreview,
   RoadmapFilters,
   RoadmapItem,
   RoadmapSearchResult,
@@ -50,10 +51,24 @@ export const getCustomerReports = (name: string) =>
   request<Report[]>(`/customers/${encodeURIComponent(name)}/reports`)
 
 export const generateReport = (name: string, itemIds: number[]) =>
-  request<Report>(`/customers/${encodeURIComponent(name)}/reports/generate`, {
+  request<ReportPreview>(`/customers/${encodeURIComponent(name)}/reports/generate`, {
     method: "POST",
     body: JSON.stringify({ item_ids: itemIds }),
   })
+
+export const saveReport = (
+  name: string,
+  title: string,
+  content: string,
+  status: "draft" | "approved",
+) =>
+  request<Report>(`/customers/${encodeURIComponent(name)}/reports`, {
+    method: "POST",
+    body: JSON.stringify({ title, content, status }),
+  })
+
+export const approveReport = (reportId: number) =>
+  request<Report>(`/reports/${reportId}/approve`, { method: "PATCH" })
 
 // --- Roadmap ---
 

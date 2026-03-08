@@ -9,7 +9,11 @@ import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
 import { cn } from "@/lib/utils"
-import { getCustomer, getCustomerImpact, getCustomerReports, deleteCustomer, generateReport } from "@/lib/api"
+import {
+  getCustomer, getCustomerImpact, getCustomerReports, deleteCustomer,
+  generateReport, saveReport, approveReport,
+} from "@/lib/api"
+import type { ReportPreview } from "@/types/api"
 
 const PRIORITY_VARIANT = { high: "destructive", medium: "secondary", low: "outline" } as const
 
@@ -20,6 +24,9 @@ function ImpactTab({ name, onReportGenerated }: { name: string; onReportGenerate
   })
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [generating, setGenerating] = useState(false)
+  const [preview, setPreview] = useState<ReportPreview | null>(null)
+  const [editedContent, setEditedContent] = useState("")
+  const [saving, setSaving] = useState(false)
 
   function toggle(id: number) {
     setSelected((prev) => {
@@ -33,16 +40,58 @@ function ImpactTab({ name, onReportGenerated }: { name: string; onReportGenerate
   async function generate() {
     setGenerating(true)
     try {
-      await generateReport(name, [...selected])
-      setSelected(new Set())
-      onReportGenerated()
+      const result = await generateReport(name, [...selected])
+      setPreview(result)
+      setEditedContent(result.content)
     } finally {
       setGenerating(false)
     }
   }
 
+  async function save(status: "draft" | "approved") {
+    if (!preview) return
+    setSaving(true)
+    try {
+      await saveReport(name, preview.title, editedContent, status)
+      setPreview(null)
+      setSelected(new Set())
+      onReportGenerated()
+    } finally {
+      setSaving(false)
+    }
+  }
+
   if (isLoading) return <div className="space-y-2">{Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-16" />)}</div>
   if (!data?.length) return <p className="text-sm text-muted-foreground">No relevant roadmap changes found.</p>
+
+  if (preview) {
+    return (
+      <div className="flex flex-col gap-4">
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" size="sm" onClick={() => setPreview(null)}>
+            <ArrowLeft size={14} className="mr-1" /> Back
+          </Button>
+          <p className="text-sm font-medium truncate">{preview.title}</p>
+        </div>
+        <textarea
+          className="w-full rounded-lg border bg-muted/30 p-4 text-sm leading-relaxed resize-none focus:outline-none focus:ring-2 focus:ring-ring"
+          rows={20}
+          value={editedContent}
+          onChange={(e) => setEditedContent(e.target.value)}
+        />
+        <div className="flex justify-end gap-2">
+          <Button variant="outline" size="sm" onClick={() => void save("draft")} disabled={saving}>
+            {saving ? <Loader2 size={14} className="mr-2 animate-spin" /> : null}
+            Save as Draft
+          </Button>
+          <Button size="sm" onClick={() => void save("approved")} disabled={saving}>
+            {saving ? <Loader2 size={14} className="mr-2 animate-spin" /> : null}
+            Approve & Save
+          </Button>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="flex flex-col gap-3">
@@ -93,14 +142,26 @@ function ImpactTab({ name, onReportGenerated }: { name: string; onReportGenerate
 }
 
 function ReportsTab({ name }: { name: string }) {
+  const qc = useQueryClient()
   const { data, isLoading } = useQuery({
     queryKey: ["reports", name],
     queryFn: () => getCustomerReports(name),
   })
   const [expanded, setExpanded] = useState<number | null>(null)
+  const [approving, setApproving] = useState<number | null>(null)
+
+  async function approve(id: number) {
+    setApproving(id)
+    try {
+      await approveReport(id)
+      void qc.invalidateQueries({ queryKey: ["reports", name] })
+    } finally {
+      setApproving(null)
+    }
+  }
 
   if (isLoading) return <div className="space-y-2">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-12" />)}</div>
-  if (!data?.length) return <p className="text-sm text-muted-foreground">No reports generated yet. Ask the chat to generate one.</p>
+  if (!data?.length) return <p className="text-sm text-muted-foreground">No reports generated yet. Use the Impact tab to create one.</p>
 
   return (
     <div className="space-y-3">
@@ -110,18 +171,33 @@ function ReportsTab({ name }: { name: string }) {
             className="flex w-full items-center justify-between px-4 py-3 text-left"
             onClick={() => setExpanded(expanded === r.id ? null : r.id)}
           >
-            <div>
-              <p className="text-sm font-medium">{r.title}</p>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2">
+                <p className="text-sm font-medium truncate">{r.title}</p>
+                <Badge variant={r.status === "approved" ? "default" : "secondary"} className="shrink-0">
+                  {r.status}
+                </Badge>
+              </div>
               <p className="text-xs text-muted-foreground">{new Date(r.generated_at).toLocaleString()}</p>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 ml-2 shrink-0">
+              {r.status === "draft" && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={(e) => { e.stopPropagation(); void approve(r.id) }}
+                  disabled={approving === r.id}
+                >
+                  {approving === r.id ? <Loader2 size={12} className="animate-spin" /> : "Approve"}
+                </Button>
+              )}
               {r.drive_file_id && <ExternalLink size={14} className="text-muted-foreground" />}
               <span className="text-xs text-muted-foreground">{expanded === r.id ? "▲" : "▼"}</span>
             </div>
           </button>
           {expanded === r.id && (
             <div className="border-t px-4 py-3">
-              <pre className="whitespace-pre-wrap text-xs leading-relaxed">{r.content}</pre>
+              <pre className="whitespace-pre-wrap text-sm leading-relaxed">{r.content}</pre>
             </div>
           )}
         </div>

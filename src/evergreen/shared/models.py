@@ -76,4 +76,5 @@ class Report(BaseModel):
     title: str
     content: str
     drive_file_id: str | None = None
+    status: str = "approved"
     generated_at: datetime

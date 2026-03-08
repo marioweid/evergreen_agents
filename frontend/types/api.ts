@@ -50,11 +50,17 @@ export interface RoadmapFilters {
   release_phases: string[]
 }
 
+export interface ReportPreview {
+  title: string
+  content: string
+}
+
 export interface Report {
   id: number
   customer_id: number
   title: string
   content: string
   drive_file_id: string | null
+  status: "draft" | "approved"
   generated_at: string
 }

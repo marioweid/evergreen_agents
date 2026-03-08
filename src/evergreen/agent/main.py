@@ -31,7 +31,7 @@ from evergreen.agent.tools.roadmap import (
     get_roadmap_items_by_ids,
     search_roadmap,
 )
-from evergreen.pipeline.database import insert_report, list_customer_reports
+from evergreen.pipeline.database import approve_report, insert_report, list_customer_reports
 from evergreen.pipeline.embedder import embed_query
 from evergreen.shared.database import close_pool, get_pool
 from evergreen.shared.models import (
@@ -72,10 +72,31 @@ class GenerateReportRequest(BaseModel):
     item_ids: list[int]
 
 
+class ReportPreview(BaseModel):
+    title: str
+    content: str
+
+
+class SaveReportRequest(BaseModel):
+    title: str
+    content: str
+    status: Literal["draft", "approved"] = "draft"
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     logger.info("Starting Evergreen agent on %s:%d", HOST, PORT)
-    await get_pool(DATABASE_URL)
+    pool = await get_pool(DATABASE_URL)
+    await pool.execute("""
+        DO $$ BEGIN
+            IF EXISTS (
+                SELECT 1 FROM information_schema.tables WHERE table_name = 'reports'
+            ) THEN
+                ALTER TABLE reports
+                    ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'approved';
+            END IF;
+        END $$
+    """)
     yield
     await close_pool()
     logger.info("Evergreen agent shut down")
@@ -311,8 +332,8 @@ async def customers_reports(name: str) -> list[Report]:
     return await list_customer_reports(pool, customer.id)
 
 
-@app.post("/customers/{name}/reports/generate", response_model=Report, status_code=201)
-async def customers_generate_report(name: str, body: GenerateReportRequest) -> Report:
+@app.post("/customers/{name}/reports/generate", response_model=ReportPreview)
+async def customers_generate_report(name: str, body: GenerateReportRequest) -> ReportPreview:
     pool = await get_pool(DATABASE_URL)
     customer = await get_customer(pool, name)
     if customer is None or customer.id is None:
@@ -322,7 +343,25 @@ async def customers_generate_report(name: str, body: GenerateReportRequest) -> R
         raise HTTPException(status_code=422, detail="None of the provided item IDs exist")
     content = await _generate_curated_report(customer, items, OPENAI_API_KEY)
     title = f"Evergreen Report – {name} – {datetime.now().strftime('%Y-%m-%d')}"
-    return await insert_report(pool, customer.id, title, content, None)
+    return ReportPreview(title=title, content=content)
+
+
+@app.post("/customers/{name}/reports", response_model=Report, status_code=201)
+async def customers_save_report(name: str, body: SaveReportRequest) -> Report:
+    pool = await get_pool(DATABASE_URL)
+    customer = await get_customer(pool, name)
+    if customer is None or customer.id is None:
+        raise HTTPException(status_code=404, detail=f"Customer '{name}' not found")
+    return await insert_report(pool, customer.id, body.title, body.content, None, body.status)
+
+
+@app.patch("/reports/{report_id}/approve", response_model=Report)
+async def reports_approve(report_id: int) -> Report:
+    pool = await get_pool(DATABASE_URL)
+    report = await approve_report(pool, report_id)
+    if report is None:
+        raise HTTPException(status_code=404, detail=f"Report {report_id} not found")
+    return report
 
 
 @app.get("/customers/{name}/impact", response_model=list[RoadmapSearchResult])

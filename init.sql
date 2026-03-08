@@ -47,6 +47,7 @@ CREATE TABLE IF NOT EXISTS reports (
     title         TEXT NOT NULL,
     content       TEXT NOT NULL,
     drive_file_id TEXT,
+    status        TEXT NOT NULL DEFAULT 'approved',
     generated_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
