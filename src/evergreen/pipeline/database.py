@@ -5,7 +5,7 @@ import logging
 
 import asyncpg
 
-from evergreen.shared.models import Report, RoadmapItem
+from evergreen.shared.models import CustomerDocument, Report, RoadmapItem
 
 logger = logging.getLogger(__name__)
 
@@ -71,164 +71,102 @@ async def upsert_roadmap_items(
     return len(rows)
 
 
-async def upsert_customer_from_drive(
-    pool: asyncpg.Pool,
-    folder_id: str,
-    name: str,
-    description: str,
-    products_used: list[str],
-    priority: str,
-    notes: str | None,
-) -> int:
-    """Upsert a customer sourced from Google Drive. Returns the customer id."""
-    row = await pool.fetchrow(
-        """
-        INSERT INTO customers (name, drive_folder_id, description, products_used, priority, notes)
-        VALUES ($1, $2, $3, $4::jsonb, $5, $6)
-        ON CONFLICT (drive_folder_id) WHERE drive_folder_id IS NOT NULL DO UPDATE SET
-            name          = EXCLUDED.name,
-            description   = EXCLUDED.description,
-            products_used = EXCLUDED.products_used,
-            priority      = EXCLUDED.priority,
-            notes         = EXCLUDED.notes,
-            updated_at    = CURRENT_TIMESTAMP
-        WHERE
-            customers.description   IS DISTINCT FROM EXCLUDED.description OR
-            customers.products_used IS DISTINCT FROM EXCLUDED.products_used OR
-            customers.priority      IS DISTINCT FROM EXCLUDED.priority      OR
-            customers.notes         IS DISTINCT FROM EXCLUDED.notes
-        RETURNING id
-        """,
-        name,
-        folder_id,
-        description,
-        json.dumps(products_used),
-        priority,
-        notes,
+# --- Customer documents ---
+
+
+def _row_to_document(row: asyncpg.Record) -> CustomerDocument:
+    return CustomerDocument(
+        id=row["id"],
+        customer_id=row["customer_id"],
+        title=row["title"],
+        content=row["content"],
+        created_at=row["created_at"],
+        updated_at=row["updated_at"],
     )
-    if row is None:
-        # Nothing changed — fetch the existing id
-        row = await pool.fetchrow("SELECT id FROM customers WHERE drive_folder_id = $1", folder_id)
-    return row["id"]
 
 
-async def get_customer_doc_modified_times(pool: asyncpg.Pool, customer_id: int) -> dict[str, str]:
-    """Return {drive_file_id: drive_modified_at} for all stored docs of a customer."""
+async def list_customer_documents(pool: asyncpg.Pool, customer_id: int) -> list[CustomerDocument]:
+    """Return all documents for a customer, newest first."""
     rows = await pool.fetch(
-        "SELECT drive_file_id, drive_modified_at FROM customer_documents WHERE customer_id = $1",
+        """
+        SELECT id, customer_id, title, content, created_at, updated_at
+        FROM customer_documents
+        WHERE customer_id = $1
+        ORDER BY updated_at DESC
+        """,
         customer_id,
     )
-    return {row["drive_file_id"]: row["drive_modified_at"] for row in rows}
+    return [_row_to_document(row) for row in rows]
 
 
-async def upsert_customer_documents(
-    pool: asyncpg.Pool,
-    customer_id: int,
-    docs: list[tuple[str, str, str, str, list[float]]],
-) -> int:
-    """Upsert customer documents with embeddings.
-
-    docs: list of (drive_file_id, title, content, drive_modified_at, embedding)
-    Returns count upserted.
-    """
-    query = """
-        INSERT INTO customer_documents
-            (customer_id, drive_file_id, title, content, drive_modified_at, embedding)
-        VALUES ($1, $2, $3, $4, $5, $6::vector)
-        ON CONFLICT (drive_file_id) DO UPDATE SET
-            title             = EXCLUDED.title,
-            content           = EXCLUDED.content,
-            drive_modified_at = EXCLUDED.drive_modified_at,
-            embedding         = EXCLUDED.embedding,
-            synced_at         = CURRENT_TIMESTAMP
-    """
-    rows = [
-        (customer_id, file_id, title, content, modified_at, json.dumps(emb))
-        for file_id, title, content, modified_at, emb in docs
-    ]
-    async with pool.acquire() as conn:
-        await conn.executemany(query, rows)
-    logger.info("Upserted %d customer documents for customer_id=%d", len(rows), customer_id)
-    return len(rows)
-
-
-async def insert_report(
+async def insert_customer_document(
     pool: asyncpg.Pool,
     customer_id: int,
     title: str,
     content: str,
-    drive_file_id: str | None,
-    status: str = "draft",
-) -> Report:
-    """Insert a generated report and return the stored record."""
+    embedding: list[float],
+) -> CustomerDocument:
+    """Insert a customer document with its embedding. Returns the stored record."""
     row = await pool.fetchrow(
         """
-        INSERT INTO reports (customer_id, title, content, drive_file_id, status)
-        VALUES ($1, $2, $3, $4, $5)
-        RETURNING id, customer_id, title, content, drive_file_id, status, generated_at
+        INSERT INTO customer_documents (customer_id, title, content, embedding)
+        VALUES ($1, $2, $3, $4::vector)
+        RETURNING id, customer_id, title, content, created_at, updated_at
         """,
         customer_id,
         title,
         content,
-        drive_file_id,
-        status,
+        json.dumps(embedding),
     )
-    return Report(
-        id=row["id"],
-        customer_id=row["customer_id"],
-        title=row["title"],
-        content=row["content"],
-        drive_file_id=row["drive_file_id"],
-        status=row["status"],
-        generated_at=row["generated_at"],
-    )
+    return _row_to_document(row)
 
 
-async def approve_report(pool: asyncpg.Pool, report_id: int) -> Report | None:
-    """Set a report's status to approved. Returns None if not found."""
+async def update_customer_document(
+    pool: asyncpg.Pool,
+    doc_id: int,
+    customer_id: int,
+    title: str | None,
+    content: str | None,
+    embedding: list[float] | None,
+) -> CustomerDocument | None:
+    """Update title and/or content of a document. Returns None if not found."""
+    sets = ["updated_at = CURRENT_TIMESTAMP"]
+    params: list[object] = []
+
+    if title is not None:
+        params.append(title)
+        sets.append(f"title = ${len(params)}")
+    if content is not None:
+        params.append(content)
+        sets.append(f"content = ${len(params)}")
+    if embedding is not None:
+        params.append(json.dumps(embedding))
+        sets.append(f"embedding = ${len(params)}::vector")
+
+    params.extend([doc_id, customer_id])
+    id_param = len(params) - 1
+    cid_param = len(params)
+
     row = await pool.fetchrow(
-        """
-        UPDATE reports SET status = 'approved' WHERE id = $1
-        RETURNING id, customer_id, title, content, drive_file_id, status, generated_at
+        f"""
+        UPDATE customer_documents
+        SET {", ".join(sets)}
+        WHERE id = ${id_param} AND customer_id = ${cid_param}
+        RETURNING id, customer_id, title, content, created_at, updated_at
         """,
-        report_id,
+        *params,
     )
-    if row is None:
-        return None
-    return Report(
-        id=row["id"],
-        customer_id=row["customer_id"],
-        title=row["title"],
-        content=row["content"],
-        drive_file_id=row["drive_file_id"],
-        status=row["status"],
-        generated_at=row["generated_at"],
-    )
+    return _row_to_document(row) if row else None
 
 
-async def list_customer_reports(pool: asyncpg.Pool, customer_id: int) -> list[Report]:
-    """Return all reports for a customer, newest first."""
-    rows = await pool.fetch(
-        """
-        SELECT id, customer_id, title, content, drive_file_id, status, generated_at
-        FROM reports
-        WHERE customer_id = $1
-        ORDER BY generated_at DESC
-        """,
+async def delete_customer_document(pool: asyncpg.Pool, doc_id: int, customer_id: int) -> bool:
+    """Delete a document. Returns True if deleted, False if not found."""
+    result = await pool.execute(
+        "DELETE FROM customer_documents WHERE id = $1 AND customer_id = $2",
+        doc_id,
         customer_id,
     )
-    return [
-        Report(
-            id=row["id"],
-            customer_id=row["customer_id"],
-            title=row["title"],
-            content=row["content"],
-            drive_file_id=row["drive_file_id"],
-            status=row["status"],
-            generated_at=row["generated_at"],
-        )
-        for row in rows
-    ]
+    return result == "DELETE 1"
 
 
 async def search_customer_documents(
@@ -254,3 +192,65 @@ async def search_customer_documents(
         {"title": row["title"], "content": row["content"], "similarity": float(row["similarity"])}
         for row in rows
     ]
+
+
+# --- Reports ---
+
+
+def _row_to_report(row: asyncpg.Record) -> Report:
+    return Report(
+        id=row["id"],
+        customer_id=row["customer_id"],
+        title=row["title"],
+        content=row["content"],
+        status=row["status"],
+        generated_at=row["generated_at"],
+    )
+
+
+async def insert_report(
+    pool: asyncpg.Pool,
+    customer_id: int,
+    title: str,
+    content: str,
+    status: str = "draft",
+) -> Report:
+    """Insert a generated report and return the stored record."""
+    row = await pool.fetchrow(
+        """
+        INSERT INTO reports (customer_id, title, content, status)
+        VALUES ($1, $2, $3, $4)
+        RETURNING id, customer_id, title, content, status, generated_at
+        """,
+        customer_id,
+        title,
+        content,
+        status,
+    )
+    return _row_to_report(row)
+
+
+async def approve_report(pool: asyncpg.Pool, report_id: int) -> Report | None:
+    """Set a report's status to approved. Returns None if not found."""
+    row = await pool.fetchrow(
+        """
+        UPDATE reports SET status = 'approved' WHERE id = $1
+        RETURNING id, customer_id, title, content, status, generated_at
+        """,
+        report_id,
+    )
+    return _row_to_report(row) if row else None
+
+
+async def list_customer_reports(pool: asyncpg.Pool, customer_id: int) -> list[Report]:
+    """Return all reports for a customer, newest first."""
+    rows = await pool.fetch(
+        """
+        SELECT id, customer_id, title, content, status, generated_at
+        FROM reports
+        WHERE customer_id = $1
+        ORDER BY generated_at DESC
+        """,
+        customer_id,
+    )
+    return [_row_to_report(row) for row in rows]

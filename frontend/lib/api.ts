@@ -1,6 +1,9 @@
 import type {
   Customer,
   CustomerCreate,
+  CustomerDocument,
+  CustomerDocumentCreate,
+  CustomerDocumentUpdate,
   CustomerUpdate,
   Report,
   ReportPreview,
@@ -55,6 +58,32 @@ export const getCustomerImpact = (
     `/customers/${encodeURIComponent(name)}/impact?${qs.toString()}`,
   )
 }
+
+// --- Customer documents ---
+
+export const getCustomerDocuments = (name: string) =>
+  request<CustomerDocument[]>(`/customers/${encodeURIComponent(name)}/documents`)
+
+export const createCustomerDocument = (name: string, data: CustomerDocumentCreate) =>
+  request<CustomerDocument>(`/customers/${encodeURIComponent(name)}/documents`, {
+    method: "POST",
+    body: JSON.stringify(data),
+  })
+
+export const updateCustomerDocument = (
+  name: string,
+  docId: number,
+  data: CustomerDocumentUpdate,
+) =>
+  request<CustomerDocument>(`/customers/${encodeURIComponent(name)}/documents/${docId}`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  })
+
+export const deleteCustomerDocument = (name: string, docId: number) =>
+  fetch(`${BASE}/customers/${encodeURIComponent(name)}/documents/${docId}`, { method: "DELETE" })
+
+// --- Reports ---
 
 export const getCustomerReports = (name: string) =>
   request<Report[]>(`/customers/${encodeURIComponent(name)}/reports`)

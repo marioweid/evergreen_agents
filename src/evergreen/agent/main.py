@@ -31,12 +31,23 @@ from evergreen.agent.tools.roadmap import (
     get_roadmap_items_by_ids,
     search_roadmap,
 )
-from evergreen.pipeline.database import approve_report, insert_report, list_customer_reports
+from evergreen.pipeline.database import (
+    approve_report,
+    delete_customer_document,
+    insert_customer_document,
+    insert_report,
+    list_customer_documents,
+    list_customer_reports,
+    update_customer_document,
+)
 from evergreen.pipeline.embedder import embed_query
 from evergreen.shared.database import close_pool, get_pool
 from evergreen.shared.models import (
     Customer,
     CustomerCreate,
+    CustomerDocument,
+    CustomerDocumentCreate,
+    CustomerDocumentUpdate,
     CustomerUpdate,
     Report,
     RoadmapFilters,
@@ -51,7 +62,6 @@ DATABASE_URL = os.environ["DATABASE_URL"]
 OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]
 HOST = os.getenv("AGENT_HOST", "0.0.0.0")
 PORT = int(os.getenv("AGENT_PORT", "8000"))
-GOOGLE_OAUTH_TOKEN_PATH = os.getenv("GOOGLE_OAUTH_TOKEN_PATH", "")
 
 
 class ChatMessage(BaseModel):
@@ -83,20 +93,64 @@ class SaveReportRequest(BaseModel):
     status: Literal["draft", "approved"] = "draft"
 
 
+_STARTUP_MIGRATION = """
+DO $$ BEGIN
+    -- Drop obsolete Drive columns from customers
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'customers' AND column_name = 'drive_folder_id'
+    ) THEN
+        ALTER TABLE customers DROP COLUMN drive_folder_id;
+    END IF;
+
+    -- Drop obsolete drive_file_id column from reports
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'reports' AND column_name = 'drive_file_id'
+    ) THEN
+        ALTER TABLE reports DROP COLUMN drive_file_id;
+    END IF;
+
+    -- Add status column to reports if missing
+    IF EXISTS (
+        SELECT 1 FROM information_schema.tables WHERE table_name = 'reports'
+    ) THEN
+        ALTER TABLE reports ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'approved';
+    END IF;
+
+    -- Rebuild customer_documents without Drive columns if needed
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'customer_documents' AND column_name = 'drive_file_id'
+    ) THEN
+        DROP TABLE customer_documents;
+        CREATE TABLE customer_documents (
+            id          SERIAL PRIMARY KEY,
+            customer_id INTEGER NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+            title       TEXT NOT NULL,
+            content     TEXT NOT NULL,
+            embedding   vector(1536),
+            created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+    ELSE
+        -- Ensure updated_at exists on fresh schema variants
+        ALTER TABLE customer_documents
+            ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+    END IF;
+
+    -- Drop stale Drive index if present
+    DROP INDEX IF EXISTS customers_drive_folder_id_idx;
+END $$
+"""
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     logger.info("Starting Evergreen agent on %s:%d", HOST, PORT)
     pool = await get_pool(DATABASE_URL)
-    await pool.execute("""
-        DO $$ BEGIN
-            IF EXISTS (
-                SELECT 1 FROM information_schema.tables WHERE table_name = 'reports'
-            ) THEN
-                ALTER TABLE reports
-                    ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'approved';
-            END IF;
-        END $$
-    """)
+    await pool.execute(_STARTUP_MIGRATION)
     yield
     await close_pool()
     logger.info("Evergreen agent shut down")
@@ -119,9 +173,7 @@ async def health() -> dict:
 @app.post("/query", response_model=QueryResponse)
 async def query(request: QueryRequest) -> QueryResponse:
     pool = await get_pool(DATABASE_URL)
-    deps = OrchestratorDeps(
-        pool=pool, openai_api_key=OPENAI_API_KEY, token_path=GOOGLE_OAUTH_TOKEN_PATH
-    )
+    deps = OrchestratorDeps(pool=pool, openai_api_key=OPENAI_API_KEY)
     result = await orchestrator.run(request.query, deps=deps)
     return QueryResponse(answer=result.output)
 
@@ -190,9 +242,7 @@ async def _sse_stream(
 @app.post("/query/stream")
 async def query_stream(request: QueryRequest) -> StreamingResponse:
     pool = await get_pool(DATABASE_URL)
-    deps = OrchestratorDeps(
-        pool=pool, openai_api_key=OPENAI_API_KEY, token_path=GOOGLE_OAUTH_TOKEN_PATH
-    )
+    deps = OrchestratorDeps(pool=pool, openai_api_key=OPENAI_API_KEY)
     return StreamingResponse(
         _sse_stream(request.query, request.history, deps),
         media_type="text/event-stream",
@@ -327,6 +377,68 @@ async def customers_delete(name: str) -> Response:
     return Response(status_code=204)
 
 
+# --- Customer document endpoints ---
+
+
+@app.get("/customers/{name}/documents", response_model=list[CustomerDocument])
+async def customers_documents_list(name: str) -> list[CustomerDocument]:
+    pool = await get_pool(DATABASE_URL)
+    customer = await get_customer(pool, name)
+    if customer is None or customer.id is None:
+        raise HTTPException(status_code=404, detail=f"Customer '{name}' not found")
+    return await list_customer_documents(pool, customer.id)
+
+
+@app.post("/customers/{name}/documents", response_model=CustomerDocument, status_code=201)
+async def customers_documents_create(name: str, body: CustomerDocumentCreate) -> CustomerDocument:
+    pool = await get_pool(DATABASE_URL)
+    customer = await get_customer(pool, name)
+    if customer is None or customer.id is None:
+        raise HTTPException(status_code=404, detail=f"Customer '{name}' not found")
+    text = f"Title: {body.title}\n\n{body.content}"
+    embedding = await embed_query(text, OPENAI_API_KEY)
+    return await insert_customer_document(pool, customer.id, body.title, body.content, embedding)
+
+
+@app.patch(
+    "/customers/{name}/documents/{doc_id}",
+    response_model=CustomerDocument,
+)
+async def customers_documents_update(
+    name: str, doc_id: int, body: CustomerDocumentUpdate
+) -> CustomerDocument:
+    pool = await get_pool(DATABASE_URL)
+    customer = await get_customer(pool, name)
+    if customer is None or customer.id is None:
+        raise HTTPException(status_code=404, detail=f"Customer '{name}' not found")
+    embedding: list[float] | None = None
+    if body.content is not None:
+        title_for_embed = body.title or ""
+        text = f"Title: {title_for_embed}\n\n{body.content}"
+        embedding = await embed_query(text, OPENAI_API_KEY)
+    doc = await update_customer_document(
+        pool, doc_id, customer.id, body.title, body.content, embedding
+    )
+    if doc is None:
+        raise HTTPException(status_code=404, detail=f"Document {doc_id} not found")
+    return doc
+
+
+@app.delete("/customers/{name}/documents/{doc_id}", status_code=204)
+async def customers_documents_delete(name: str, doc_id: int) -> Response:
+    pool = await get_pool(DATABASE_URL)
+    customer = await get_customer(pool, name)
+    if customer is None or customer.id is None:
+        raise HTTPException(status_code=404, detail=f"Customer '{name}' not found")
+    deleted = await delete_customer_document(pool, doc_id, customer.id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail=f"Document {doc_id} not found")
+    return Response(status_code=204)
+
+
+# --- Report endpoints ---
+
+
 @app.get("/customers/{name}/reports", response_model=list[Report])
 async def customers_reports(name: str) -> list[Report]:
     pool = await get_pool(DATABASE_URL)
@@ -356,7 +468,7 @@ async def customers_save_report(name: str, body: SaveReportRequest) -> Report:
     customer = await get_customer(pool, name)
     if customer is None or customer.id is None:
         raise HTTPException(status_code=404, detail=f"Customer '{name}' not found")
-    return await insert_report(pool, customer.id, body.title, body.content, None, body.status)
+    return await insert_report(pool, customer.id, body.title, body.content, body.status)
 
 
 @app.patch("/reports/{report_id}/approve", response_model=Report)

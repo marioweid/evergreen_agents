@@ -29,11 +29,6 @@ services:
       # Cron schedule (default: every Sunday 02:00)
       PIPELINE_CRON: ${PIPELINE_CRON:-0 2 * * 0}
       RUN_ON_STARTUP: ${RUN_ON_STARTUP:-true}
-      # Fixed container path; bind-mount the actual key below
-      GOOGLE_SA_KEY_PATH: /run/secrets/sa_key.json
-    volumes:
-      # Mount SA key read-only if the host path is set; falls back to /dev/null if unset
-      - ${GOOGLE_SA_KEY_PATH:-/dev/null}:/run/secrets/sa_key.json:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -52,7 +47,6 @@ services:
       DATABASE_URL: postgresql://evergreen:evergreen@postgres:5432/evergreen
       PUBLIC_HOST: ${PUBLIC_HOST:-localhost}
       AGENT_PORT: "8000"
-      GOOGLE_OAUTH_TOKEN_PATH: ${GOOGLE_OAUTH_TOKEN_PATH:-}
     depends_on:
       postgres:
         condition: service_healthy

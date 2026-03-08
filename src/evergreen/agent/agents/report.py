@@ -9,15 +9,13 @@ from evergreen.agent.tools.customer import get_customer, list_customers
 from evergreen.agent.tools.roadmap import list_recent_roadmap_items, search_roadmap
 from evergreen.pipeline.database import insert_report, search_customer_documents
 from evergreen.pipeline.embedder import embed_query
-from evergreen.pipeline.google_drive import write_report_to_drive
 from evergreen.shared.models import Customer
 
 
 class ReportDeps:
-    def __init__(self, pool: asyncpg.Pool, openai_api_key: str, token_path: str = "") -> None:
+    def __init__(self, pool: asyncpg.Pool, openai_api_key: str) -> None:
         self.pool = pool
         self.openai_api_key = openai_api_key
-        self.token_path = token_path
 
 
 report_agent: Agent[ReportDeps, str] = Agent(
@@ -33,8 +31,7 @@ report_agent: Agent[ReportDeps, str] = Agent(
         "that lets them share files directly from their desktop'). "
         "Always call get_customer_context first to understand the customer's background before "
         "deciding which changes are relevant. Exclude anything with no plausible relevance. "
-        "After composing the report, call save_report to persist it. "
-        "The report is saved to the database and optionally uploaded to Google Drive."
+        "After composing the report, call save_report to persist it."
     ),
 )
 
@@ -122,10 +119,7 @@ async def get_current_date(ctx: RunContext[ReportDeps]) -> str:
 async def save_report(
     ctx: RunContext[ReportDeps], customer_name: str, title: str, content: str
 ) -> str:
-    """Save the generated report to the database and optionally to Google Drive.
-
-    Always persists to the database. Uploads to Drive when GOOGLE_OAUTH_TOKEN_PATH
-    is configured and the customer has a drive_folder_id.
+    """Save the generated report to the database as a draft.
 
     Args:
         customer_name: Name of the customer.
@@ -133,23 +127,14 @@ async def save_report(
         content: Full report text.
 
     Returns:
-        Summary of what was saved and where.
+        Summary of what was saved.
     """
     customer = await get_customer(ctx.deps.pool, customer_name)
     if customer is None or customer.id is None:
         return f"Save failed: customer '{customer_name}' not found."
 
-    drive_file_id: str | None = None
-    drive_note = "Drive upload skipped (not configured or no folder linked)."
-
-    if ctx.deps.token_path and customer.drive_folder_id:
-        drive_file_id = await write_report_to_drive(
-            ctx.deps.token_path, customer.drive_folder_id, title, content
-        )
-        drive_note = f"Uploaded to Drive (file_id={drive_file_id})."
-
-    report = await insert_report(ctx.deps.pool, customer.id, title, content, drive_file_id)
+    report = await insert_report(ctx.deps.pool, customer.id, title, content)
     return (
-        f"Report saved as draft (id={report.id}). {drive_note} "
+        f"Report saved as draft (id={report.id}). "
         f"The customer can review and approve it in the Reports tab."
     )

@@ -13,7 +13,6 @@ class Customer(BaseModel):
     products_used: list[str]
     priority: Literal["low", "medium", "high"] = "medium"
     notes: str | None = None
-    drive_folder_id: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
@@ -31,6 +30,25 @@ class CustomerUpdate(BaseModel):
     products_used: list[str] | None = None
     priority: Literal["low", "medium", "high"] | None = None
     notes: str | None = None
+
+
+class CustomerDocument(BaseModel):
+    id: int
+    customer_id: int
+    title: str
+    content: str
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class CustomerDocumentCreate(BaseModel):
+    title: str
+    content: str
+
+
+class CustomerDocumentUpdate(BaseModel):
+    title: str | None = None
+    content: str | None = None
 
 
 class RoadmapItem(BaseModel):
@@ -75,6 +93,5 @@ class Report(BaseModel):
     customer_id: int
     title: str
     content: str
-    drive_file_id: str | None = None
-    status: str = "approved"
+    status: str = "draft"
     generated_at: datetime

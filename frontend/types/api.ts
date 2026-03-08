@@ -5,7 +5,6 @@ export interface Customer {
   products_used: string[]
   priority: "low" | "medium" | "high"
   notes: string | null
-  drive_folder_id: string | null
   created_at: string | null
   updated_at: string | null
 }
@@ -23,6 +22,25 @@ export interface CustomerUpdate {
   products_used?: string[] | null
   priority?: "low" | "medium" | "high" | null
   notes?: string | null
+}
+
+export interface CustomerDocument {
+  id: number
+  customer_id: number
+  title: string
+  content: string
+  created_at: string | null
+  updated_at: string | null
+}
+
+export interface CustomerDocumentCreate {
+  title: string
+  content: string
+}
+
+export interface CustomerDocumentUpdate {
+  title?: string | null
+  content?: string | null
 }
 
 export interface RoadmapItem {
@@ -60,7 +78,6 @@ export interface Report {
   customer_id: number
   title: string
   content: string
-  drive_file_id: string | null
   status: "draft" | "approved"
   generated_at: string
 }

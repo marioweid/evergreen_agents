@@ -3,19 +3,30 @@
 import { use, useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { useRouter } from "next/navigation"
-import { ArrowLeft, Trash2, Loader2, ExternalLink, FileText } from "lucide-react"
+import { ArrowLeft, Trash2, Loader2, FileText, Plus, Pencil } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
 import { cn } from "@/lib/utils"
 import {
-  getCustomer, getCustomerImpact, getCustomerReports, deleteCustomer,
-  generateReport, saveReport, approveReport,
+  getCustomer,
+  getCustomerImpact,
+  getCustomerReports,
+  getCustomerDocuments,
+  createCustomerDocument,
+  updateCustomerDocument,
+  deleteCustomerDocument,
+  deleteCustomer,
+  generateReport,
+  saveReport,
+  approveReport,
 } from "@/lib/api"
-import type { ReportPreview } from "@/types/api"
+import type { CustomerDocument, ReportPreview } from "@/types/api"
 
 const PRIORITY_VARIANT = { high: "destructive", medium: "secondary", low: "outline" } as const
+
+// --- Impact Tab ---
 
 function ImpactTab({
   name,
@@ -82,8 +93,16 @@ function ImpactTab({
     }
   }
 
-  if (isLoading) return <div className="space-y-2">{Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-16" />)}</div>
-  if (!data?.length) return <p className="text-sm text-muted-foreground">No relevant roadmap changes found.</p>
+  if (isLoading)
+    return (
+      <div className="space-y-2">
+        {Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-16" />)}
+      </div>
+    )
+  if (!data?.length)
+    return (
+      <p className="text-sm text-muted-foreground">No relevant roadmap changes found.</p>
+    )
 
   if (preview) {
     return (
@@ -118,7 +137,9 @@ function ImpactTab({
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-2">
-        <p className="text-xs text-muted-foreground flex-1">Select changes to include in a plain-language report.</p>
+        <p className="text-xs text-muted-foreground flex-1">
+          Select changes to include in a plain-language report.
+        </p>
         <div className="flex items-center gap-1">
           <input
             type="date"
@@ -128,7 +149,11 @@ function ImpactTab({
             aria-label="From date"
           />
           {dateFrom && (
-            <button onClick={() => onDateFromChange("")} className="text-muted-foreground hover:text-foreground text-xs" aria-label="Clear from date">×</button>
+            <button
+              onClick={() => onDateFromChange("")}
+              className="text-muted-foreground hover:text-foreground text-xs"
+              aria-label="Clear from date"
+            >×</button>
           )}
         </div>
         <div className="flex items-center gap-1">
@@ -140,14 +165,21 @@ function ImpactTab({
             aria-label="To date"
           />
           {dateTo && (
-            <button onClick={() => onDateToChange("")} className="text-muted-foreground hover:text-foreground text-xs" aria-label="Clear to date">×</button>
+            <button
+              onClick={() => onDateToChange("")}
+              className="text-muted-foreground hover:text-foreground text-xs"
+              aria-label="Clear to date"
+            >×</button>
           )}
         </div>
       </div>
       {data.map(({ item, similarity }) => (
         <div
           key={item.id}
-          className={cn("rounded-lg border p-4 cursor-pointer transition-colors", selected.has(item.id) && "border-primary bg-primary/5")}
+          className={cn(
+            "rounded-lg border p-4 cursor-pointer transition-colors",
+            selected.has(item.id) && "border-primary bg-primary/5",
+          )}
           onClick={() => toggle(item.id)}
         >
           <div className="flex items-start gap-3">
@@ -160,7 +192,11 @@ function ImpactTab({
             />
             <div className="flex-1">
               <p className="font-medium text-sm">{item.title}</p>
-              {item.description && <p className="mt-1 text-xs text-muted-foreground line-clamp-2">{item.description}</p>}
+              {item.description && (
+                <p className="mt-1 text-xs text-muted-foreground line-clamp-2">
+                  {item.description}
+                </p>
+              )}
               <div className="mt-2 flex flex-wrap gap-1">
                 {item.status && <Badge variant="outline">{item.status}</Badge>}
                 {item.release_phase && <Badge variant="outline">{item.release_phase}</Badge>}
@@ -181,7 +217,9 @@ function ImpactTab({
             {selected.size} change{selected.size !== 1 ? "s" : ""} selected
           </span>
           <Button size="sm" onClick={() => void generate()} disabled={generating}>
-            {generating ? <Loader2 size={14} className="mr-2 animate-spin" /> : <FileText size={14} className="mr-2" />}
+            {generating
+              ? <Loader2 size={14} className="mr-2 animate-spin" />
+              : <FileText size={14} className="mr-2" />}
             Generate Report
           </Button>
         </div>
@@ -189,6 +227,8 @@ function ImpactTab({
     </div>
   )
 }
+
+// --- Reports Tab ---
 
 function ReportsTab({ name }: { name: string }) {
   const qc = useQueryClient()
@@ -213,8 +253,18 @@ function ReportsTab({ name }: { name: string }) {
     }
   }
 
-  if (isLoading) return <div className="space-y-2">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-12" />)}</div>
-  if (!data?.length) return <p className="text-sm text-muted-foreground">No reports generated yet. Use the Impact tab to create one.</p>
+  if (isLoading)
+    return (
+      <div className="space-y-2">
+        {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-12" />)}
+      </div>
+    )
+  if (!data?.length)
+    return (
+      <p className="text-sm text-muted-foreground">
+        No reports generated yet. Use the Impact tab to create one.
+      </p>
+    )
 
   return (
     <div className="space-y-3">
@@ -228,11 +278,16 @@ function ReportsTab({ name }: { name: string }) {
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
                 <p className="text-sm font-medium truncate">{r.title}</p>
-                <Badge variant={r.status === "approved" ? "default" : "secondary"} className="shrink-0">
+                <Badge
+                  variant={r.status === "approved" ? "default" : "secondary"}
+                  className="shrink-0"
+                >
                   {r.status}
                 </Badge>
               </div>
-              <p className="text-xs text-muted-foreground">{new Date(r.generated_at).toLocaleString()}</p>
+              <p className="text-xs text-muted-foreground">
+                {new Date(r.generated_at).toLocaleString()}
+              </p>
             </div>
             <div className="flex items-center gap-2 ml-2 shrink-0">
               {r.status === "draft" && (
@@ -245,7 +300,6 @@ function ReportsTab({ name }: { name: string }) {
                   {approving === r.id ? <Loader2 size={12} className="animate-spin" /> : "Approve"}
                 </Button>
               )}
-              {r.drive_file_id && <ExternalLink size={14} className="text-muted-foreground" />}
               <span className="text-xs text-muted-foreground">{expanded === r.id ? "▲" : "▼"}</span>
             </div>
           </button>
@@ -260,12 +314,207 @@ function ReportsTab({ name }: { name: string }) {
   )
 }
 
+// --- Documents Tab ---
+
+interface DocFormState {
+  title: string
+  content: string
+}
+
+function DocumentForm({
+  initial,
+  onSave,
+  onCancel,
+  saving,
+  error,
+}: {
+  initial: DocFormState
+  onSave: (data: DocFormState) => void
+  onCancel: () => void
+  saving: boolean
+  error: string | null
+}) {
+  const [title, setTitle] = useState(initial.title)
+  const [content, setContent] = useState(initial.content)
+
+  return (
+    <div className="rounded-lg border p-4 flex flex-col gap-3">
+      <input
+        className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+        placeholder="Title (e.g. Battle Card, Meeting Notes)"
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+      />
+      <textarea
+        className="w-full rounded-lg border bg-muted/30 p-3 text-sm leading-relaxed resize-none focus:outline-none focus:ring-2 focus:ring-ring"
+        placeholder="Document content…"
+        rows={10}
+        value={content}
+        onChange={(e) => setContent(e.target.value)}
+      />
+      {error && <p className="text-xs text-destructive">{error}</p>}
+      <div className="flex justify-end gap-2">
+        <Button variant="outline" size="sm" onClick={onCancel} disabled={saving}>
+          Cancel
+        </Button>
+        <Button
+          size="sm"
+          onClick={() => onSave({ title, content })}
+          disabled={saving || !title.trim() || !content.trim()}
+        >
+          {saving ? <Loader2 size={14} className="mr-2 animate-spin" /> : null}
+          Save
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+function DocumentsTab({ name }: { name: string }) {
+  const qc = useQueryClient()
+  const { data, isLoading } = useQuery({
+    queryKey: ["documents", name],
+    queryFn: () => getCustomerDocuments(name),
+  })
+  const [creating, setCreating] = useState(false)
+  const [editing, setEditing] = useState<CustomerDocument | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [deleting, setDeleting] = useState<number | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  async function handleCreate(data: DocFormState) {
+    setSaving(true)
+    setError(null)
+    try {
+      await createCustomerDocument(name, { title: data.title, content: data.content })
+      void qc.invalidateQueries({ queryKey: ["documents", name] })
+      setCreating(false)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save document.")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function handleUpdate(doc: CustomerDocument, data: DocFormState) {
+    setSaving(true)
+    setError(null)
+    try {
+      await updateCustomerDocument(name, doc.id, { title: data.title, content: data.content })
+      void qc.invalidateQueries({ queryKey: ["documents", name] })
+      setEditing(null)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save document.")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function handleDelete(doc: CustomerDocument) {
+    if (!window.confirm(`Delete "${doc.title}"? This cannot be undone.`)) return
+    setDeleting(doc.id)
+    setError(null)
+    try {
+      await deleteCustomerDocument(name, doc.id)
+      void qc.invalidateQueries({ queryKey: ["documents", name] })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to delete document.")
+    } finally {
+      setDeleting(null)
+    }
+  }
+
+  if (isLoading)
+    return (
+      <div className="space-y-2">
+        {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-16" />)}
+      </div>
+    )
+
+  return (
+    <div className="flex flex-col gap-3">
+      {error && <p className="text-xs text-destructive">{error}</p>}
+
+      {creating && (
+        <DocumentForm
+          initial={{ title: "", content: "" }}
+          onSave={(d) => void handleCreate(d)}
+          onCancel={() => { setCreating(false); setError(null) }}
+          saving={saving}
+          error={null}
+        />
+      )}
+
+      {!creating && (
+        <div className="flex justify-end">
+          <Button size="sm" onClick={() => { setCreating(true); setEditing(null) }}>
+            <Plus size={14} className="mr-1" /> New Document
+          </Button>
+        </div>
+      )}
+
+      {!data?.length && !creating && (
+        <p className="text-sm text-muted-foreground">
+          No documents yet. Add battle cards, meeting notes, or any customer context.
+        </p>
+      )}
+
+      {data?.map((doc) => (
+        <div key={doc.id} className="rounded-lg border">
+          {editing?.id === doc.id ? (
+            <DocumentForm
+              initial={{ title: doc.title, content: doc.content }}
+              onSave={(d) => void handleUpdate(doc, d)}
+              onCancel={() => { setEditing(null); setError(null) }}
+              saving={saving}
+              error={null}
+            />
+          ) : (
+            <div className="flex items-start justify-between px-4 py-3 gap-3">
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium">{doc.title}</p>
+                <p className="mt-1 text-xs text-muted-foreground line-clamp-2">{doc.content}</p>
+                {doc.updated_at && (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Updated {new Date(doc.updated_at).toLocaleDateString()}
+                  </p>
+                )}
+              </div>
+              <div className="flex items-center gap-1 shrink-0">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => { setEditing(doc); setCreating(false); setError(null) }}
+                >
+                  <Pencil size={14} />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => void handleDelete(doc)}
+                  disabled={deleting === doc.id}
+                >
+                  {deleting === doc.id
+                    ? <Loader2 size={14} className="animate-spin" />
+                    : <Trash2 size={14} />}
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+// --- Page ---
+
 export default function CustomerDetailPage({ params }: { params: Promise<{ name: string }> }) {
   const { name } = use(params)
   const decodedName = decodeURIComponent(name)
   const router = useRouter()
   const qc = useQueryClient()
-  const [tab, setTab] = useState<"impact" | "reports">("impact")
+  const [tab, setTab] = useState<"impact" | "reports" | "documents">("impact")
   const [dateFrom, setDateFrom] = useState("")
   const [dateTo, setDateTo] = useState("")
 
@@ -288,14 +537,22 @@ export default function CustomerDetailPage({ params }: { params: Promise<{ name:
     }
   }
 
-  if (isLoading) return <div className="p-6 space-y-4"><Skeleton className="h-8 w-48" /><Skeleton className="h-4 w-96" /></div>
+  if (isLoading)
+    return (
+      <div className="p-6 space-y-4">
+        <Skeleton className="h-8 w-48" />
+        <Skeleton className="h-4 w-96" />
+      </div>
+    )
   if (!customer) return <p className="p-6 text-sm text-muted-foreground">Customer not found.</p>
 
   return (
     <div className="flex h-full flex-col">
       <div className="border-b px-6 py-4">
         <div className="flex items-center gap-2 mb-3">
-          <Button variant="ghost" size="icon" onClick={() => router.push("/customers")}><ArrowLeft size={16} /></Button>
+          <Button variant="ghost" size="icon" onClick={() => router.push("/customers")}>
+            <ArrowLeft size={16} />
+          </Button>
           <h1 className="text-lg font-semibold">{customer.name}</h1>
           <Badge variant={PRIORITY_VARIANT[customer.priority]}>{customer.priority}</Badge>
         </div>
@@ -303,9 +560,16 @@ export default function CustomerDetailPage({ params }: { params: Promise<{ name:
         <div className="flex flex-wrap gap-1 mb-3">
           {customer.products_used.map((p) => <Badge key={p} variant="outline">{p}</Badge>)}
         </div>
-        {customer.notes && <p className="text-xs text-muted-foreground italic">{customer.notes}</p>}
+        {customer.notes && (
+          <p className="text-xs text-muted-foreground italic">{customer.notes}</p>
+        )}
         <div className="flex justify-end">
-          <Button variant="destructive" size="sm" onClick={confirmDelete} disabled={deleteMutation.isPending}>
+          <Button
+            variant="destructive"
+            size="sm"
+            onClick={confirmDelete}
+            disabled={deleteMutation.isPending}
+          >
             {deleteMutation.isPending ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
           </Button>
         </div>
@@ -313,7 +577,7 @@ export default function CustomerDetailPage({ params }: { params: Promise<{ name:
 
       <div className="border-b px-6">
         <div className="flex gap-4">
-          {(["impact", "reports"] as const).map((t) => (
+          {(["impact", "reports", "documents"] as const).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -341,6 +605,7 @@ export default function CustomerDetailPage({ params }: { params: Promise<{ name:
           />
         )}
         {tab === "reports" && <ReportsTab name={decodedName} />}
+        {tab === "documents" && <DocumentsTab name={decodedName} />}
       </div>
     </div>
   )

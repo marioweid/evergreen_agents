@@ -1,29 +1,13 @@
-"""Create two dummy customer folders in Google Drive for testing.
+"""Create two dummy customers with documents via the API for testing.
 
 Usage:
-    GOOGLE_SA_KEY_PATH=sa_drive_agent.json \
-    GOOGLE_DRIVE_CUSTOMER_FOLDER_ID=<folder_id> \
-    uv run python scripts/create_test_data.py
-
-The service account needs write access to the target folder.
-Share the folder with: driveagent@marioprivategcp.iam.gserviceaccount.com
+    uv run python scripts/create_test_data.py [--api http://localhost:8000]
 """
 
-import os
-import sys
-
-from google.oauth2 import service_account
-from googleapiclient.discovery import build
-
-# drive.file: create/manage files created by this app
-# documents: insert text into Docs via batchUpdate
-# Native Google Docs created via the Docs API don't count against storage quota.
-_SCOPES = [
-    "https://www.googleapis.com/auth/drive",
-    "https://www.googleapis.com/auth/documents",
-]
-_MIME_FOLDER = "application/vnd.google-apps.folder"
-_MIME_DOC = "application/vnd.google-apps.document"
+import argparse
+import json
+import urllib.error
+import urllib.request
 
 CONTOSO_BATTLE_CARD = """\
 # Battle Card: Contoso Ltd
@@ -129,77 +113,88 @@ them centrally with Intune. No MDM solution currently in place.
 """
 
 _CUSTOMERS = [
-    ("Contoso Ltd", CONTOSO_BATTLE_CARD, CONTOSO_MEETING_NOTES),
-    ("Fabrikam Inc", FABRIKAM_BATTLE_CARD, FABRIKAM_MEETING_NOTES),
+    {
+        "customer": {
+            "name": "Contoso Ltd",
+            "description": (
+                "1,200-person financial services firm in Frankfurt. Focused on Teams adoption "
+                "and Copilot readiness. Strict EU data residency requirements."
+            ),
+            "products_used": [
+                "Microsoft Teams",
+                "SharePoint Online",
+                "Exchange Online",
+                "Microsoft Viva",
+            ],
+            "priority": "high",
+            "notes": "Primary contact: Sarah Fischer (IT Director). Contract renewal Q3 2025.",
+        },
+        "documents": [
+            {"title": "Battle Card", "content": CONTOSO_BATTLE_CARD},
+            {"title": "Meeting Notes 2025-02-14", "content": CONTOSO_MEETING_NOTES},
+        ],
+    },
+    {
+        "customer": {
+            "name": "Fabrikam Inc",
+            "description": (
+                "350-person manufacturing company across 3 plants in Austria. Small IT team, "
+                "needs low-admin solutions. Evaluating Intune for plant floor devices."
+            ),
+            "products_used": ["Microsoft Teams", "OneDrive for Business", "Microsoft Intune"],
+            "priority": "medium",
+            "notes": "Primary contact: Thomas Huber (IT Manager).",
+        },
+        "documents": [
+            {"title": "Battle Card", "content": FABRIKAM_BATTLE_CARD},
+            {"title": "Meeting Notes 2025-01-22", "content": FABRIKAM_MEETING_NOTES},
+        ],
+    },
 ]
 
 
-def _build_services(sa_key_path: str) -> tuple:
-    creds = service_account.Credentials.from_service_account_file(sa_key_path, scopes=_SCOPES)
-    drive = build("drive", "v3", credentials=creds, cache_discovery=False)
-    docs = build("docs", "v1", credentials=creds, cache_discovery=False)
-    return drive, docs
-
-
-def create_folder(drive, parent_id: str, name: str) -> str:
-    file = (
-        drive.files()
-        .create(
-            body={"name": name, "mimeType": _MIME_FOLDER, "parents": [parent_id]},
-            fields="id",
-        )
-        .execute()
+def _post(base: str, path: str, body: dict) -> dict:
+    data = json.dumps(body).encode()
+    req = urllib.request.Request(
+        f"{base}{path}",
+        data=data,
+        headers={"Content-Type": "application/json"},
+        method="POST",
     )
-    return file["id"]
-
-
-def create_google_doc(drive, docs, parent_id: str, title: str, content: str) -> str:
-    """Create a native Google Doc (no upload = no storage quota used) and insert content."""
-    # Create empty native Google Doc in Drive
-    file = (
-        drive.files()
-        .create(
-            body={"name": title, "mimeType": _MIME_DOC, "parents": [parent_id]},
-            fields="id",
-        )
-        .execute()
-    )
-    doc_id = file["id"]
-
-    # Insert content via Docs API batchUpdate — native Docs don't count against quota
-    docs.documents().batchUpdate(
-        documentId=doc_id,
-        body={"requests": [{"insertText": {"location": {"index": 1}, "text": content}}]},
-    ).execute()
-
-    return doc_id
+    try:
+        with urllib.request.urlopen(req) as resp:
+            return json.loads(resp.read())
+    except urllib.error.HTTPError as exc:
+        body_text = exc.read().decode()
+        raise SystemExit(f"HTTP {exc.code} on {path}: {body_text}") from exc
 
 
 def main() -> None:
-    sa_key_path = os.environ.get("GOOGLE_SA_KEY_PATH", "sa_drive_agent.json")
-    root_folder_id = os.environ.get("GOOGLE_DRIVE_CUSTOMER_FOLDER_ID", "")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--api", default="http://localhost:8000", help="API base URL")
+    args = parser.parse_args()
+    base: str = args.api.rstrip("/")
 
-    if not root_folder_id:
-        print("Error: set GOOGLE_DRIVE_CUSTOMER_FOLDER_ID to the ID of your Customers folder.")
-        sys.exit(1)
+    for entry in _CUSTOMERS:
+        name = entry["customer"]["name"]
+        print(f"Creating customer: {name}")
+        try:
+            customer = _post(base, "/customers", entry["customer"])
+            print(f"  Created (id={customer['id']})")
+        except SystemExit as exc:
+            if "409" in str(exc) or "already" in str(exc).lower():
+                print("  Already exists, skipping")
+            else:
+                raise
 
-    drive, docs = _build_services(sa_key_path)
-
-    for customer_name, battle_card, meeting_notes in _CUSTOMERS:
-        print(f"Creating folder: {customer_name}")
-        folder_id = create_folder(drive, root_folder_id, customer_name)
-
-        print("  Creating Battle Card")
-        create_google_doc(drive, docs, folder_id, "Battle Card", battle_card)
-
-        print("  Creating Meeting Notes")
-        create_google_doc(drive, docs, folder_id, "Meeting Notes", meeting_notes)
-
-        print(f"  Done — folder id: {folder_id}")
+        for doc in entry["documents"]:
+            print(f"  Adding document: {doc['title']}")
+            _post(base, f"/customers/{urllib.parse.quote(name)}/documents", doc)
 
     print("\nAll test customers created successfully.")
-    print("Now set GOOGLE_DRIVE_CUSTOMERS_FOLDER_ID in your .env and run the pipeline.")
 
 
 if __name__ == "__main__":
+    import urllib.parse
+
     main()
