@@ -34,6 +34,7 @@ from evergreen.agent.tools.roadmap import (
 from evergreen.pipeline.database import (
     approve_report,
     delete_customer_document,
+    delete_report,
     insert_customer_document,
     insert_report,
     list_customer_documents,
@@ -475,6 +476,15 @@ async def customers_save_report(name: str, body: SaveReportRequest) -> Report:
     if customer is None or customer.id is None:
         raise HTTPException(status_code=404, detail=f"Customer '{name}' not found")
     return await insert_report(pool, customer.id, body.title, body.content, body.status)
+
+
+@app.delete("/reports/{report_id}", status_code=204)
+async def reports_delete(report_id: int) -> Response:
+    pool = await get_pool(DATABASE_URL)
+    deleted = await delete_report(pool, report_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail=f"Report {report_id} not found")
+    return Response(status_code=204)
 
 
 @app.patch("/reports/{report_id}/approve", response_model=Report)

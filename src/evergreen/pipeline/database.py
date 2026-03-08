@@ -230,6 +230,12 @@ async def insert_report(
     return _row_to_report(row)
 
 
+async def delete_report(pool: asyncpg.Pool, report_id: int) -> bool:
+    """Delete a report. Returns True if deleted, False if not found."""
+    result = await pool.execute("DELETE FROM reports WHERE id = $1", report_id)
+    return result == "DELETE 1"
+
+
 async def approve_report(pool: asyncpg.Pool, report_id: int) -> Report | None:
     """Set a report's status to approved. Returns None if not found."""
     row = await pool.fetchrow(

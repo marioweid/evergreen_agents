@@ -108,6 +108,9 @@ export const saveReport = (
 export const approveReport = (reportId: number) =>
   request<Report>(`/reports/${reportId}/approve`, { method: "PATCH" })
 
+export const deleteReport = (reportId: number) =>
+  fetch(`${BASE}/reports/${reportId}`, { method: "DELETE" })
+
 // --- Roadmap ---
 
 export interface RoadmapQuery {

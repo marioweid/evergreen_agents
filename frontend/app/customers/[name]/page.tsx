@@ -21,6 +21,7 @@ import {
   generateReport,
   saveReport,
   approveReport,
+  deleteReport,
   updateCustomer,
 } from "@/lib/api"
 import type { Customer, CustomerDocument, ReportPreview } from "@/types/api"
@@ -393,18 +394,33 @@ function ReportsTab({ name }: { name: string }) {
   })
   const [expanded, setExpanded] = useState<number | null>(null)
   const [approving, setApproving] = useState<number | null>(null)
-  const [approveError, setApproveError] = useState<string | null>(null)
+  const [deleting, setDeleting] = useState<number | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
 
   async function approve(id: number) {
     setApproving(id)
-    setApproveError(null)
+    setActionError(null)
     try {
       await approveReport(id)
       void qc.invalidateQueries({ queryKey: ["reports", name] })
     } catch (err) {
-      setApproveError(err instanceof Error ? err.message : "Failed to approve report.")
+      setActionError(err instanceof Error ? err.message : "Failed to approve report.")
     } finally {
       setApproving(null)
+    }
+  }
+
+  async function remove(id: number, title: string) {
+    if (!window.confirm(`Delete "${title}"? This cannot be undone.`)) return
+    setDeleting(id)
+    setActionError(null)
+    try {
+      await deleteReport(id)
+      void qc.invalidateQueries({ queryKey: ["reports", name] })
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Failed to delete report.")
+    } finally {
+      setDeleting(null)
     }
   }
 
@@ -423,7 +439,7 @@ function ReportsTab({ name }: { name: string }) {
 
   return (
     <div className="space-y-3">
-      {approveError && <p className="text-xs text-destructive">{approveError}</p>}
+      {actionError && <p className="text-xs text-destructive">{actionError}</p>}
       {data.map((r) => (
         <div key={r.id} className="rounded-lg border">
           <button
@@ -455,6 +471,15 @@ function ReportsTab({ name }: { name: string }) {
                   {approving === r.id ? <Loader2 size={12} className="animate-spin" /> : "Approve"}
                 </Button>
               )}
+              <Button
+                size="icon"
+                variant="ghost"
+                className="text-muted-foreground hover:text-destructive"
+                onClick={(e) => { e.stopPropagation(); void remove(r.id, r.title) }}
+                disabled={deleting === r.id}
+              >
+                {deleting === r.id ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+              </Button>
               <span className="text-xs text-muted-foreground">{expanded === r.id ? "▲" : "▼"}</span>
             </div>
           </button>
