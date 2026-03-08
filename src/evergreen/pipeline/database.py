@@ -230,6 +230,43 @@ async def insert_report(
     return _row_to_report(row)
 
 
+async def update_report(
+    pool: asyncpg.Pool,
+    report_id: int,
+    title: str | None,
+    content: str | None,
+) -> Report | None:
+    """Update title and/or content of a report. Returns None if not found."""
+    sets: list[str] = []
+    params: list[object] = []
+
+    if title is not None:
+        params.append(title)
+        sets.append(f"title = ${len(params)}")
+    if content is not None:
+        params.append(content)
+        sets.append(f"content = ${len(params)}")
+
+    if not sets:
+        row = await pool.fetchrow(
+            "SELECT id, customer_id, title, content, status, generated_at"
+            " FROM reports WHERE id = $1",
+            report_id,
+        )
+        return _row_to_report(row) if row else None
+
+    params.append(report_id)
+    row = await pool.fetchrow(
+        f"""
+        UPDATE reports SET {", ".join(sets)}
+        WHERE id = ${len(params)}
+        RETURNING id, customer_id, title, content, status, generated_at
+        """,
+        *params,
+    )
+    return _row_to_report(row) if row else None
+
+
 async def delete_report(pool: asyncpg.Pool, report_id: int) -> bool:
     """Delete a report. Returns True if deleted, False if not found."""
     result = await pool.execute("DELETE FROM reports WHERE id = $1", report_id)

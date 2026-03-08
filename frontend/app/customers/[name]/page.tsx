@@ -21,6 +21,7 @@ import {
   generateReport,
   saveReport,
   approveReport,
+  updateReport,
   deleteReport,
   updateCustomer,
 } from "@/lib/api"
@@ -393,9 +394,40 @@ function ReportsTab({ name }: { name: string }) {
     queryFn: () => getCustomerReports(name),
   })
   const [expanded, setExpanded] = useState<number | null>(null)
+  const [editing, setEditing] = useState<number | null>(null)
+  const [editTitle, setEditTitle] = useState("")
+  const [editContent, setEditContent] = useState("")
   const [approving, setApproving] = useState<number | null>(null)
+  const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState<number | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
+
+  function startEdit(r: { id: number; title: string; content: string }) {
+    setEditing(r.id)
+    setEditTitle(r.title)
+    setEditContent(r.content)
+    setExpanded(r.id)
+    setActionError(null)
+  }
+
+  function cancelEdit() {
+    setEditing(null)
+    setActionError(null)
+  }
+
+  async function saveEdit(id: number) {
+    setSaving(true)
+    setActionError(null)
+    try {
+      await updateReport(id, editTitle, editContent)
+      void qc.invalidateQueries({ queryKey: ["reports", name] })
+      setEditing(null)
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Failed to save report.")
+    } finally {
+      setSaving(false)
+    }
+  }
 
   async function approve(id: number) {
     setApproving(id)
@@ -444,7 +476,10 @@ function ReportsTab({ name }: { name: string }) {
         <div key={r.id} className="rounded-lg border">
           <button
             className="flex w-full items-center justify-between px-4 py-3 text-left"
-            onClick={() => setExpanded(expanded === r.id ? null : r.id)}
+            onClick={() => {
+              if (editing === r.id) return
+              setExpanded(expanded === r.id ? null : r.id)
+            }}
           >
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
@@ -474,6 +509,13 @@ function ReportsTab({ name }: { name: string }) {
               <Button
                 size="icon"
                 variant="ghost"
+                onClick={(e) => { e.stopPropagation(); startEdit(r) }}
+              >
+                <Pencil size={14} />
+              </Button>
+              <Button
+                size="icon"
+                variant="ghost"
                 className="text-muted-foreground hover:text-destructive"
                 onClick={(e) => { e.stopPropagation(); void remove(r.id, r.title) }}
                 disabled={deleting === r.id}
@@ -485,7 +527,32 @@ function ReportsTab({ name }: { name: string }) {
           </button>
           {expanded === r.id && (
             <div className="border-t px-4 py-3">
-              <pre className="whitespace-pre-wrap text-sm leading-relaxed">{r.content}</pre>
+              {editing === r.id ? (
+                <div className="flex flex-col gap-3">
+                  <input
+                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                    value={editTitle}
+                    onChange={(e) => setEditTitle(e.target.value)}
+                  />
+                  <textarea
+                    className="w-full rounded-lg border bg-muted/30 p-3 text-sm leading-relaxed resize-none focus:outline-none focus:ring-2 focus:ring-ring"
+                    rows={16}
+                    value={editContent}
+                    onChange={(e) => setEditContent(e.target.value)}
+                  />
+                  <div className="flex justify-end gap-2">
+                    <Button variant="outline" size="sm" onClick={cancelEdit} disabled={saving}>
+                      Cancel
+                    </Button>
+                    <Button size="sm" onClick={() => void saveEdit(r.id)} disabled={saving}>
+                      {saving ? <Loader2 size={14} className="mr-2 animate-spin" /> : null}
+                      Save
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <pre className="whitespace-pre-wrap text-sm leading-relaxed">{r.content}</pre>
+              )}
             </div>
           )}
         </div>

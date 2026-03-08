@@ -108,8 +108,27 @@ export const saveReport = (
 export const approveReport = (reportId: number) =>
   request<Report>(`/reports/${reportId}/approve`, { method: "PATCH" })
 
+export const updateReport = (reportId: number, title: string, content: string) =>
+  request<Report>(`/reports/${reportId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ title, content }),
+  })
+
 export const deleteReport = (reportId: number) =>
   fetch(`${BASE}/reports/${reportId}`, { method: "DELETE" })
+
+// --- Pipeline ---
+
+export interface PipelineStatus {
+  running: boolean
+  last_run: string | null
+  error: string | null
+}
+
+export const getPipelineStatus = () => request<PipelineStatus>("/pipeline/status")
+
+export const triggerPipeline = () =>
+  request<{ status: string }>("/pipeline/trigger", { method: "POST" })
 
 // --- Roadmap ---
 

@@ -9,7 +9,7 @@ from datetime import date, datetime
 from typing import Literal
 
 import uvicorn
-from fastapi import FastAPI, HTTPException, Query, Response
+from fastapi import BackgroundTasks, FastAPI, HTTPException, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from openai import AsyncOpenAI
@@ -40,8 +40,10 @@ from evergreen.pipeline.database import (
     list_customer_documents,
     list_customer_reports,
     update_customer_document,
+    update_report,
 )
 from evergreen.pipeline.embedder import embed_query
+from evergreen.pipeline.main import run_ingestion
 from evergreen.shared.database import close_pool, get_pool
 from evergreen.shared.models import (
     Customer,
@@ -175,6 +177,41 @@ app.add_middleware(
 @app.get("/health")
 async def health() -> dict:
     return {"status": "ok"}
+
+
+# --- Pipeline trigger ---
+
+_pipeline: dict = {"running": False, "last_run": None, "error": None}
+
+
+async def _run_pipeline_task() -> None:
+    _pipeline["running"] = True
+    _pipeline["error"] = None
+    try:
+        await run_ingestion()
+        _pipeline["last_run"] = datetime.now().isoformat()
+    except Exception as exc:  # noqa: BLE001
+        _pipeline["error"] = str(exc)
+        logger.error("Pipeline run failed: %s", exc)
+    finally:
+        _pipeline["running"] = False
+
+
+@app.post("/pipeline/trigger", status_code=202)
+async def pipeline_trigger(background_tasks: BackgroundTasks) -> dict:
+    if _pipeline["running"]:
+        raise HTTPException(status_code=409, detail="Pipeline is already running")
+    background_tasks.add_task(_run_pipeline_task)
+    return {"status": "started"}
+
+
+@app.get("/pipeline/status")
+async def pipeline_status() -> dict:
+    return {
+        "running": _pipeline["running"],
+        "last_run": _pipeline["last_run"],
+        "error": _pipeline["error"],
+    }
 
 
 @app.post("/query", response_model=QueryResponse)
@@ -476,6 +513,20 @@ async def customers_save_report(name: str, body: SaveReportRequest) -> Report:
     if customer is None or customer.id is None:
         raise HTTPException(status_code=404, detail=f"Customer '{name}' not found")
     return await insert_report(pool, customer.id, body.title, body.content, body.status)
+
+
+class UpdateReportRequest(BaseModel):
+    title: str | None = None
+    content: str | None = None
+
+
+@app.patch("/reports/{report_id}", response_model=Report)
+async def reports_update(report_id: int, body: UpdateReportRequest) -> Report:
+    pool = await get_pool(DATABASE_URL)
+    report = await update_report(pool, report_id, body.title, body.content)
+    if report is None:
+        raise HTTPException(status_code=404, detail=f"Report {report_id} not found")
+    return report
 
 
 @app.delete("/reports/{report_id}", status_code=204)

@@ -1,12 +1,12 @@
 "use client"
 
 import { useState } from "react"
-import { useQuery } from "@tanstack/react-query"
-import { Search, Loader2 } from "lucide-react"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { Search, Loader2, RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
-import { getRoadmap, getRoadmapFilters } from "@/lib/api"
+import { getRoadmap, getRoadmapFilters, getPipelineStatus, triggerPipeline } from "@/lib/api"
 import type { RoadmapQuery } from "@/lib/api"
 
 function FilterSelect({
@@ -34,8 +34,11 @@ function FilterSelect({
 }
 
 export default function RoadmapPage() {
+  const qc = useQueryClient()
   const [queryParams, setQueryParams] = useState<RoadmapQuery>({ limit: 50 })
   const [searchInput, setSearchInput] = useState("")
+  const [syncing, setSyncing] = useState(false)
+  const [syncError, setSyncError] = useState<string | null>(null)
 
   const { data: filters } = useQuery({ queryKey: ["roadmap-filters"], queryFn: getRoadmapFilters })
 
@@ -44,7 +47,39 @@ export default function RoadmapPage() {
     queryFn: () => getRoadmap(queryParams),
   })
 
+  const { data: pipelineStatus } = useQuery({
+    queryKey: ["pipeline-status"],
+    queryFn: getPipelineStatus,
+    refetchInterval: syncing ? 2000 : false,
+  })
+
   const [expanded, setExpanded] = useState<number | null>(null)
+
+  async function sync() {
+    setSyncing(true)
+    setSyncError(null)
+    try {
+      await triggerPipeline()
+      // Poll until done
+      const poll = setInterval(async () => {
+        const status = await getPipelineStatus()
+        void qc.setQueryData(["pipeline-status"], status)
+        if (!status.running) {
+          clearInterval(poll)
+          setSyncing(false)
+          if (status.error) {
+            setSyncError(status.error)
+          } else {
+            void qc.invalidateQueries({ queryKey: ["roadmap"] })
+            void qc.invalidateQueries({ queryKey: ["roadmap-filters"] })
+          }
+        }
+      }, 2000)
+    } catch (err) {
+      setSyncing(false)
+      setSyncError(err instanceof Error ? err.message : "Sync failed.")
+    }
+  }
 
   function search() {
     setQueryParams((prev) => ({ ...prev, q: searchInput.trim() || undefined }))
@@ -60,9 +95,21 @@ export default function RoadmapPage() {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="border-b px-6 py-4">
-        <h1 className="text-lg font-semibold">Roadmap</h1>
-        <p className="text-sm text-muted-foreground">M365 roadmap items — {items?.length ?? 0} shown</p>
+      <div className="border-b px-6 py-4 flex items-center justify-between gap-4">
+        <div>
+          <h1 className="text-lg font-semibold">Roadmap</h1>
+          <p className="text-sm text-muted-foreground">
+            M365 roadmap items — {items?.length ?? 0} shown
+            {pipelineStatus?.last_run && !syncing && (
+              <span> · Last synced {new Date(pipelineStatus.last_run).toLocaleString()}</span>
+            )}
+          </p>
+          {syncError && <p className="text-xs text-destructive mt-0.5">{syncError}</p>}
+        </div>
+        <Button variant="outline" size="sm" onClick={() => void sync()} disabled={syncing}>
+          <RefreshCw size={14} className={syncing ? "mr-2 animate-spin" : "mr-2"} />
+          {syncing ? "Syncing…" : "Sync now"}
+        </Button>
       </div>
 
       <div className="border-b px-6 py-3 flex flex-wrap gap-2">
