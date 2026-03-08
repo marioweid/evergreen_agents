@@ -1,6 +1,7 @@
 """Tools for searching and querying the M365 roadmap."""
 
 import json
+from datetime import date
 
 import asyncpg
 
@@ -23,24 +24,42 @@ def _row_to_item(row: asyncpg.Record) -> RoadmapItem:
     )
 
 
+_DATE_EXPR = "TO_DATE(SUBSTRING(release_date FROM 6 FOR 11), 'DD Mon YYYY')"
+
+
 async def search_roadmap(
     pool: asyncpg.Pool,
     query_embedding: list[float],
     limit: int = 10,
+    date_from: date | None = None,
+    date_to: date | None = None,
 ) -> list[RoadmapSearchResult]:
     """Vector similarity search over roadmap items."""
+    params: list[object] = [json.dumps(query_embedding)]
+    conditions: list[str] = []
+
+    if date_from:
+        params.append(date_from)
+        conditions.append(f"(release_date IS NOT NULL AND {_DATE_EXPR} >= ${len(params)}::date)")
+    if date_to:
+        params.append(date_to)
+        conditions.append(f"(release_date IS NOT NULL AND {_DATE_EXPR} <= ${len(params)}::date)")
+
+    params.append(limit)
+    where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+
     rows = await pool.fetch(
-        """
+        f"""
         SELECT id, title, description, status, release_date,
                products, platforms, cloud_instances, release_phase,
                created_at, updated_at,
                1 - (embedding <=> $1::vector) AS similarity
         FROM roadmap_items
+        {where}
         ORDER BY embedding <=> $1::vector
-        LIMIT $2
+        LIMIT ${len(params)}
         """,
-        json.dumps(query_embedding),
-        limit,
+        *params,
     )
     return [
         RoadmapSearchResult(item=_row_to_item(row), similarity=float(row["similarity"]))
@@ -150,6 +169,8 @@ async def browse_roadmap(
     product: str | None = None,
     status: str | None = None,
     release_phase: str | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
     limit: int = 50,
 ) -> list[RoadmapItem]:
     """List or search roadmap items with optional filters.
@@ -177,6 +198,13 @@ async def browse_roadmap(
     if release_phase:
         params.append(f"%{release_phase}%")
         conditions.append(f"release_phase ILIKE ${len(params)}")
+
+    if date_from:
+        params.append(date_from)
+        conditions.append(f"(release_date IS NOT NULL AND {_DATE_EXPR} >= ${len(params)}::date)")
+    if date_to:
+        params.append(date_to)
+        conditions.append(f"(release_date IS NOT NULL AND {_DATE_EXPR} <= ${len(params)}::date)")
 
     params.append(limit)
     limit_param = f"${len(params)}"

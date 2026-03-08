@@ -97,6 +97,20 @@ export default function RoadmapPage() {
             value={queryParams.release_phase ?? ""}
             onChange={(v) => setFilter("release_phase", v)}
           />
+          <input
+            type="date"
+            className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+            value={queryParams.release_date_from ?? ""}
+            onChange={(e) => setFilter("release_date_from", e.target.value)}
+            aria-label="From date"
+          />
+          <input
+            type="date"
+            className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+            value={queryParams.release_date_to ?? ""}
+            onChange={(e) => setFilter("release_date_to", e.target.value)}
+            aria-label="To date"
+          />
         </div>
       </div>
 

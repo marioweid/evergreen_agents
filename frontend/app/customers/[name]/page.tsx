@@ -18,9 +18,11 @@ import type { ReportPreview } from "@/types/api"
 const PRIORITY_VARIANT = { high: "destructive", medium: "secondary", low: "outline" } as const
 
 function ImpactTab({ name, onReportGenerated }: { name: string; onReportGenerated: () => void }) {
+  const [dateFrom, setDateFrom] = useState("")
+  const [dateTo, setDateTo] = useState("")
   const { data, isLoading } = useQuery({
-    queryKey: ["impact", name],
-    queryFn: () => getCustomerImpact(name, 20),
+    queryKey: ["impact", name, dateFrom, dateTo],
+    queryFn: () => getCustomerImpact(name, 20, dateFrom || undefined, dateTo || undefined),
   })
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [generating, setGenerating] = useState(false)
@@ -95,7 +97,23 @@ function ImpactTab({ name, onReportGenerated }: { name: string; onReportGenerate
 
   return (
     <div className="flex flex-col gap-3">
-      <p className="text-xs text-muted-foreground">Select the changes that matter for this customer, then generate a plain-language report.</p>
+      <div className="flex flex-wrap items-center gap-2">
+        <p className="text-xs text-muted-foreground flex-1">Select changes to include in a plain-language report.</p>
+        <input
+          type="date"
+          className="h-8 rounded-md border border-input bg-background px-2 text-xs"
+          value={dateFrom}
+          onChange={(e) => setDateFrom(e.target.value)}
+          aria-label="From date"
+        />
+        <input
+          type="date"
+          className="h-8 rounded-md border border-input bg-background px-2 text-xs"
+          value={dateTo}
+          onChange={(e) => setDateTo(e.target.value)}
+          aria-label="To date"
+        />
+      </div>
       {data.map(({ item, similarity }) => (
         <div
           key={item.id}

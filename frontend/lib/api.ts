@@ -42,10 +42,19 @@ export const updateCustomer = (name: string, data: CustomerUpdate) =>
 export const deleteCustomer = (name: string) =>
   fetch(`${BASE}/customers/${encodeURIComponent(name)}`, { method: "DELETE" })
 
-export const getCustomerImpact = (name: string, limit = 10) =>
-  request<RoadmapSearchResult[]>(
-    `/customers/${encodeURIComponent(name)}/impact?limit=${limit}`,
+export const getCustomerImpact = (
+  name: string,
+  limit = 10,
+  dateFrom?: string,
+  dateTo?: string,
+) => {
+  const qs = new URLSearchParams({ limit: String(limit) })
+  if (dateFrom) qs.set("release_date_from", dateFrom)
+  if (dateTo) qs.set("release_date_to", dateTo)
+  return request<RoadmapSearchResult[]>(
+    `/customers/${encodeURIComponent(name)}/impact?${qs.toString()}`,
   )
+}
 
 export const getCustomerReports = (name: string) =>
   request<Report[]>(`/customers/${encodeURIComponent(name)}/reports`)
@@ -77,6 +86,8 @@ export interface RoadmapQuery {
   product?: string
   status?: string
   release_phase?: string
+  release_date_from?: string
+  release_date_to?: string
   limit?: number
 }
 
@@ -86,6 +97,8 @@ export const getRoadmap = (params: RoadmapQuery = {}) => {
   if (params.product) qs.set("product", params.product)
   if (params.status) qs.set("status", params.status)
   if (params.release_phase) qs.set("release_phase", params.release_phase)
+  if (params.release_date_from) qs.set("release_date_from", params.release_date_from)
+  if (params.release_date_to) qs.set("release_date_to", params.release_date_to)
   if (params.limit) qs.set("limit", String(params.limit))
   return request<RoadmapItem[]>(`/roadmap?${qs.toString()}`)
 }

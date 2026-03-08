@@ -5,7 +5,7 @@ import logging
 import os
 from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import date, datetime
 from typing import Literal
 
 import uvicorn
@@ -250,6 +250,8 @@ async def roadmap_list(
     release_phase: str | None = Query(
         default=None, description="Filter by release phase (substring)"
     ),
+    release_date_from: date | None = Query(default=None, description="Earliest release date"),
+    release_date_to: date | None = Query(default=None, description="Latest release date"),
     limit: int = Query(default=50, ge=1, le=200),
 ) -> list[RoadmapItem]:
     pool = await get_pool(DATABASE_URL)
@@ -262,6 +264,8 @@ async def roadmap_list(
         product=product,
         status=status,
         release_phase=release_phase,
+        date_from=release_date_from,
+        date_to=release_date_to,
         limit=limit,
     )
 
@@ -368,6 +372,8 @@ async def reports_approve(report_id: int) -> Report:
 async def customers_impact(
     name: str,
     limit: int = Query(default=10, ge=1, le=50),
+    release_date_from: date | None = Query(default=None, description="Earliest release date"),
+    release_date_to: date | None = Query(default=None, description="Latest release date"),
 ) -> list[RoadmapSearchResult]:
     pool = await get_pool(DATABASE_URL)
     customer = await get_customer(pool, name)
@@ -375,7 +381,9 @@ async def customers_impact(
         raise HTTPException(status_code=404, detail=f"Customer '{name}' not found")
     query_text = " ".join(customer.products_used) or customer.description
     embedding = await embed_query(query_text, OPENAI_API_KEY)
-    return await search_roadmap(pool, embedding, limit=limit)
+    return await search_roadmap(
+        pool, embedding, limit=limit, date_from=release_date_from, date_to=release_date_to
+    )
 
 
 if __name__ == "__main__":
