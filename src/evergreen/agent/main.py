@@ -13,6 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from openai import AsyncOpenAI
 from pydantic import BaseModel
+from pydantic_ai.messages import ModelMessage, ModelRequest, ModelResponse, TextPart, UserPromptPart
 
 from evergreen.agent.agents.orchestrator import OrchestratorDeps, orchestrator
 from evergreen.agent.tools.customer import (
@@ -128,12 +129,25 @@ async def _rewrite_query(query: str, history: list[ChatMessage], api_key: str) -
     return rewritten
 
 
+def _to_model_messages(history: list[ChatMessage]) -> list[ModelMessage]:
+    messages: list[ModelMessage] = []
+    for msg in history:
+        if msg.role == "user":
+            messages.append(ModelRequest(parts=[UserPromptPart(content=msg.content)]))
+        else:
+            messages.append(ModelResponse(parts=[TextPart(content=msg.content)]))
+    return messages
+
+
 async def _sse_stream(
     query: str, history: list[ChatMessage], deps: OrchestratorDeps
 ) -> AsyncGenerator[str]:
     rewritten = await _rewrite_query(query, history, deps.openai_api_key)
+    message_history = _to_model_messages(history)
     full_response = ""
-    async with orchestrator.run_stream(rewritten, deps=deps) as result:
+    async with orchestrator.run_stream(
+        rewritten, deps=deps, message_history=message_history
+    ) as result:
         async for chunk in result.stream_text(delta=True):
             full_response += chunk
             yield f"data: {json.dumps({'delta': chunk})}\n\n"
