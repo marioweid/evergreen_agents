@@ -135,9 +135,7 @@ _CUSTOMERS = [
 
 
 def _build_services(sa_key_path: str) -> tuple:
-    creds = service_account.Credentials.from_service_account_file(
-        sa_key_path, scopes=_SCOPES
-    )
+    creds = service_account.Credentials.from_service_account_file(sa_key_path, scopes=_SCOPES)
     drive = build("drive", "v3", credentials=creds, cache_discovery=False)
     docs = build("docs", "v1", credentials=creds, cache_discovery=False)
     return drive, docs
@@ -191,10 +189,10 @@ def main() -> None:
         print(f"Creating folder: {customer_name}")
         folder_id = create_folder(drive, root_folder_id, customer_name)
 
-        print(f"  Creating Battle Card")
+        print("  Creating Battle Card")
         create_google_doc(drive, docs, folder_id, "Battle Card", battle_card)
 
-        print(f"  Creating Meeting Notes")
+        print("  Creating Meeting Notes")
         create_google_doc(drive, docs, folder_id, "Meeting Notes", meeting_notes)
 
         print(f"  Done — folder id: {folder_id}")
