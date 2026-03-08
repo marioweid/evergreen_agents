@@ -49,6 +49,12 @@ export const getCustomerImpact = (name: string, limit = 10) =>
 export const getCustomerReports = (name: string) =>
   request<Report[]>(`/customers/${encodeURIComponent(name)}/reports`)
 
+export const generateReport = (name: string, itemIds: number[]) =>
+  request<Report>(`/customers/${encodeURIComponent(name)}/reports/generate`, {
+    method: "POST",
+    body: JSON.stringify({ item_ids: itemIds }),
+  })
+
 // --- Roadmap ---
 
 export interface RoadmapQuery {

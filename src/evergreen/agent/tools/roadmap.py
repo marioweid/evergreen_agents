@@ -48,6 +48,23 @@ async def search_roadmap(
     ]
 
 
+async def get_roadmap_items_by_ids(pool: asyncpg.Pool, item_ids: list[int]) -> list[RoadmapItem]:
+    """Fetch multiple roadmap items by ID, preserving input order."""
+    if not item_ids:
+        return []
+    rows = await pool.fetch(
+        """
+        SELECT id, title, description, status, release_date,
+               products, platforms, cloud_instances, release_phase,
+               created_at, updated_at
+        FROM roadmap_items WHERE id = ANY($1)
+        """,
+        item_ids,
+    )
+    by_id = {row["id"]: _row_to_item(row) for row in rows}
+    return [by_id[i] for i in item_ids if i in by_id]
+
+
 async def get_roadmap_item(pool: asyncpg.Pool, item_id: int) -> RoadmapItem | None:
     """Fetch a single roadmap item by ID."""
     row = await pool.fetchrow(

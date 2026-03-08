@@ -5,6 +5,7 @@ import logging
 import os
 from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import asynccontextmanager
+from datetime import datetime
 from typing import Literal
 
 import uvicorn
@@ -27,9 +28,10 @@ from evergreen.agent.tools.roadmap import (
     browse_roadmap,
     get_roadmap_filters,
     get_roadmap_item,
+    get_roadmap_items_by_ids,
     search_roadmap,
 )
-from evergreen.pipeline.database import list_customer_reports
+from evergreen.pipeline.database import insert_report, list_customer_reports
 from evergreen.pipeline.embedder import embed_query
 from evergreen.shared.database import close_pool, get_pool
 from evergreen.shared.models import (
@@ -64,6 +66,10 @@ class QueryRequest(BaseModel):
 
 class QueryResponse(BaseModel):
     answer: str
+
+
+class GenerateReportRequest(BaseModel):
+    item_ids: list[int]
 
 
 @asynccontextmanager
@@ -173,6 +179,45 @@ async def query_stream(request: QueryRequest) -> StreamingResponse:
     )
 
 
+# --- Curated report generation ---
+
+_PLAIN_LANGUAGE_SYSTEM = (
+    "You write Microsoft 365 update summaries for business users who are not technical. "
+    "Use plain, friendly language. Explain what each change means in practice — what users "
+    "will see or be able to do differently. Avoid jargon. "
+    "Write a one-sentence intro, then one short paragraph per change. "
+    "Do not use bullet points or section headers."
+)
+
+
+async def _generate_curated_report(
+    customer: Customer, items: list[RoadmapItem], api_key: str
+) -> str:
+    """Call the LLM to write a plain-language summary of the selected roadmap items."""
+    client = AsyncOpenAI(api_key=api_key)
+    items_text = "\n\n".join(
+        f"• {item.title}\n  {item.description or ''}\n"
+        f"  Status: {item.status or '—'} | Phase: {item.release_phase or '—'}"
+        for item in items
+    )
+    response = await client.chat.completions.create(
+        model="gpt-4o",
+        messages=[
+            {"role": "system", "content": _PLAIN_LANGUAGE_SYSTEM},
+            {
+                "role": "user",
+                "content": (
+                    f"Customer: {customer.name}\n"
+                    f"Products they use: {', '.join(customer.products_used)}\n"
+                    f"About them: {customer.description}\n\n"
+                    f"Roadmap changes to summarise:\n{items_text}"
+                ),
+            },
+        ],
+    )
+    return response.choices[0].message.content or ""
+
+
 # --- Roadmap REST endpoints ---
 
 
@@ -264,6 +309,20 @@ async def customers_reports(name: str) -> list[Report]:
     if customer is None or customer.id is None:
         raise HTTPException(status_code=404, detail=f"Customer '{name}' not found")
     return await list_customer_reports(pool, customer.id)
+
+
+@app.post("/customers/{name}/reports/generate", response_model=Report, status_code=201)
+async def customers_generate_report(name: str, body: GenerateReportRequest) -> Report:
+    pool = await get_pool(DATABASE_URL)
+    customer = await get_customer(pool, name)
+    if customer is None or customer.id is None:
+        raise HTTPException(status_code=404, detail=f"Customer '{name}' not found")
+    items = await get_roadmap_items_by_ids(pool, body.item_ids)
+    if not items:
+        raise HTTPException(status_code=422, detail="None of the provided item IDs exist")
+    content = await _generate_curated_report(customer, items, OPENAI_API_KEY)
+    title = f"Evergreen Report – {name} – {datetime.now().strftime('%Y-%m-%d')}"
+    return await insert_report(pool, customer.id, title, content, None)
 
 
 @app.get("/customers/{name}/impact", response_model=list[RoadmapSearchResult])

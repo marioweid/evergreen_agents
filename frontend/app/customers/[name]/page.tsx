@@ -3,29 +3,64 @@
 import { use, useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { useRouter } from "next/navigation"
-import { ArrowLeft, Trash2, Loader2, ExternalLink } from "lucide-react"
+import { ArrowLeft, Trash2, Loader2, ExternalLink, FileText } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
-import { getCustomer, getCustomerImpact, getCustomerReports, deleteCustomer } from "@/lib/api"
+import { cn } from "@/lib/utils"
+import { getCustomer, getCustomerImpact, getCustomerReports, deleteCustomer, generateReport } from "@/lib/api"
 
 const PRIORITY_VARIANT = { high: "destructive", medium: "secondary", low: "outline" } as const
 
-function ImpactTab({ name }: { name: string }) {
+function ImpactTab({ name, onReportGenerated }: { name: string; onReportGenerated: () => void }) {
   const { data, isLoading } = useQuery({
     queryKey: ["impact", name],
-    queryFn: () => getCustomerImpact(name, 15),
+    queryFn: () => getCustomerImpact(name, 20),
   })
+  const [selected, setSelected] = useState<Set<number>>(new Set())
+  const [generating, setGenerating] = useState(false)
+
+  function toggle(id: number) {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  async function generate() {
+    setGenerating(true)
+    try {
+      await generateReport(name, [...selected])
+      setSelected(new Set())
+      onReportGenerated()
+    } finally {
+      setGenerating(false)
+    }
+  }
 
   if (isLoading) return <div className="space-y-2">{Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-16" />)}</div>
   if (!data?.length) return <p className="text-sm text-muted-foreground">No relevant roadmap changes found.</p>
 
   return (
-    <div className="space-y-3">
+    <div className="flex flex-col gap-3">
+      <p className="text-xs text-muted-foreground">Select the changes that matter for this customer, then generate a plain-language report.</p>
       {data.map(({ item, similarity }) => (
-        <div key={item.id} className="rounded-lg border p-4">
-          <div className="flex items-start justify-between gap-4">
+        <div
+          key={item.id}
+          className={cn("rounded-lg border p-4 cursor-pointer transition-colors", selected.has(item.id) && "border-primary bg-primary/5")}
+          onClick={() => toggle(item.id)}
+        >
+          <div className="flex items-start gap-3">
+            <input
+              type="checkbox"
+              checked={selected.has(item.id)}
+              onChange={() => toggle(item.id)}
+              onClick={(e) => e.stopPropagation()}
+              className="mt-0.5 shrink-0"
+            />
             <div className="flex-1">
               <p className="font-medium text-sm">{item.title}</p>
               {item.description && <p className="mt-1 text-xs text-muted-foreground line-clamp-2">{item.description}</p>}
@@ -42,6 +77,17 @@ function ImpactTab({ name }: { name: string }) {
           </div>
         </div>
       ))}
+      {selected.size > 0 && (
+        <div className="sticky bottom-0 flex items-center justify-between rounded-lg border bg-background p-3 shadow-md">
+          <span className="text-sm text-muted-foreground">
+            {selected.size} change{selected.size !== 1 ? "s" : ""} selected
+          </span>
+          <Button size="sm" onClick={() => void generate()} disabled={generating}>
+            {generating ? <Loader2 size={14} className="mr-2 animate-spin" /> : <FileText size={14} className="mr-2" />}
+            Generate Report
+          </Button>
+        </div>
+      )}
     </div>
   )
 }
@@ -149,7 +195,15 @@ export default function CustomerDetailPage({ params }: { params: Promise<{ name:
 
       <div className="flex-1 overflow-auto px-6 py-4">
         <Separator className="mb-4 hidden" />
-        {tab === "impact" && <ImpactTab name={decodedName} />}
+        {tab === "impact" && (
+          <ImpactTab
+            name={decodedName}
+            onReportGenerated={() => {
+              setTab("reports")
+              void qc.invalidateQueries({ queryKey: ["reports", decodedName] })
+            }}
+          />
+        )}
         {tab === "reports" && <ReportsTab name={decodedName} />}
       </div>
     </div>
