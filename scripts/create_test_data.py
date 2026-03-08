@@ -7,6 +7,7 @@ Usage:
 import argparse
 import json
 import urllib.error
+import urllib.parse
 import urllib.request
 
 CONTOSO_BATTLE_CARD = """\
@@ -195,6 +196,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    import urllib.parse
-
     main()

@@ -1,16 +1,15 @@
 "use client"
 
-import { useState } from "react"
+import { useRef, useState, type KeyboardEvent } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { useRouter } from "next/navigation"
-import { Plus, Loader2 } from "lucide-react"
+import { Plus, Loader2, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { getCustomers, createCustomer } from "@/lib/api"
-import type { CustomerCreate } from "@/types/api"
 
 const PRIORITY_VARIANT = {
   high: "destructive",
@@ -18,16 +17,78 @@ const PRIORITY_VARIANT = {
   low: "outline",
 } as const
 
+function ProductTagInput({
+  products,
+  onChange,
+}: {
+  products: string[]
+  onChange: (p: string[]) => void
+}) {
+  const [input, setInput] = useState("")
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  function add(value: string) {
+    const trimmed = value.trim().replace(/,$/, "")
+    if (trimmed && !products.includes(trimmed)) {
+      onChange([...products, trimmed])
+    }
+    setInput("")
+  }
+
+  function handleKeyDown(e: KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Enter" || e.key === ",") {
+      e.preventDefault()
+      add(input)
+    } else if (e.key === "Backspace" && input === "" && products.length > 0) {
+      onChange(products.slice(0, -1))
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-1">
+      <label className="text-sm font-medium">Products used</label>
+      <div
+        className="flex flex-wrap gap-1.5 rounded-md border border-input bg-background px-2 py-2 min-h-[42px] cursor-text focus-within:ring-2 focus-within:ring-ring"
+        onClick={() => inputRef.current?.focus()}
+      >
+        {products.map((p) => (
+          <span
+            key={p}
+            className="flex items-center gap-1 rounded bg-secondary px-2 py-0.5 text-sm text-secondary-foreground"
+          >
+            {p}
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); onChange(products.filter((x) => x !== p)) }}
+              className="text-muted-foreground hover:text-foreground leading-none"
+              aria-label={`Remove ${p}`}
+            >
+              <X size={12} />
+            </button>
+          </span>
+        ))}
+        <input
+          ref={inputRef}
+          className="flex-1 min-w-32 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+          placeholder={products.length === 0 ? "Type product name, press Enter to add…" : "Add another…"}
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={handleKeyDown}
+          onBlur={() => input.trim() && add(input)}
+        />
+      </div>
+      <p className="text-xs text-muted-foreground">Press Enter or comma to add · Backspace to remove last</p>
+    </div>
+  )
+}
+
 function CustomerForm({ onSuccess }: { onSuccess: () => void }) {
   const qc = useQueryClient()
-  const [form, setForm] = useState<CustomerCreate>({
-    name: "",
-    description: "",
-    products_used: [],
-    priority: "medium",
-    notes: null,
-  })
-  const [productsRaw, setProductsRaw] = useState("")
+  const [name, setName] = useState("")
+  const [description, setDescription] = useState("")
+  const [priority, setPriority] = useState<"low" | "medium" | "high">("medium")
+  const [notes, setNotes] = useState("")
+  const [products, setProducts] = useState<string[]>([])
 
   const mutation = useMutation({
     mutationFn: createCustomer,
@@ -40,8 +101,11 @@ function CustomerForm({ onSuccess }: { onSuccess: () => void }) {
   function submit(e: React.FormEvent) {
     e.preventDefault()
     mutation.mutate({
-      ...form,
-      products_used: productsRaw.split(",").map((p) => p.trim()).filter(Boolean),
+      name: name.trim(),
+      description: description.trim(),
+      products_used: products,
+      priority,
+      notes: notes.trim() || null,
     })
   }
 
@@ -49,22 +113,24 @@ function CustomerForm({ onSuccess }: { onSuccess: () => void }) {
     <form onSubmit={submit} className="flex flex-col gap-4 pt-4">
       <div className="flex flex-col gap-1">
         <label className="text-sm font-medium">Name</label>
-        <Input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+        <Input required value={name} onChange={(e) => setName(e.target.value)} placeholder="Contoso Ltd" />
       </div>
       <div className="flex flex-col gap-1">
         <label className="text-sm font-medium">Description</label>
-        <Input required value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
+        <Input
+          required
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          placeholder="Short summary of who they are and what they do"
+        />
       </div>
-      <div className="flex flex-col gap-1">
-        <label className="text-sm font-medium">Products used (comma-separated)</label>
-        <Input value={productsRaw} onChange={(e) => setProductsRaw(e.target.value)} placeholder="Teams, SharePoint, Exchange" />
-      </div>
+      <ProductTagInput products={products} onChange={setProducts} />
       <div className="flex flex-col gap-1">
         <label className="text-sm font-medium">Priority</label>
         <select
-          className="h-9 rounded-md border border-input bg-background px-3 text-sm"
-          value={form.priority}
-          onChange={(e) => setForm({ ...form, priority: e.target.value as "low" | "medium" | "high" })}
+          className="h-9 rounded-md border border-input bg-background px-3 text-sm capitalize focus:outline-none focus:ring-2 focus:ring-ring"
+          value={priority}
+          onChange={(e) => setPriority(e.target.value as "low" | "medium" | "high")}
         >
           <option value="low">Low</option>
           <option value="medium">Medium</option>
@@ -72,11 +138,19 @@ function CustomerForm({ onSuccess }: { onSuccess: () => void }) {
         </select>
       </div>
       <div className="flex flex-col gap-1">
-        <label className="text-sm font-medium">Notes</label>
-        <Input value={form.notes ?? ""} onChange={(e) => setForm({ ...form, notes: e.target.value || null })} />
+        <label className="text-sm font-medium">
+          Notes <span className="font-normal text-muted-foreground">(optional)</span>
+        </label>
+        <Input
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          placeholder="Key contacts, renewal dates, important context…"
+        />
       </div>
-      {mutation.error && <p className="text-sm text-destructive">{(mutation.error as Error).message}</p>}
-      <Button type="submit" disabled={mutation.isPending}>
+      {mutation.error && (
+        <p className="text-sm text-destructive">{(mutation.error as Error).message}</p>
+      )}
+      <Button type="submit" disabled={mutation.isPending || !name.trim() || !description.trim()}>
         {mutation.isPending && <Loader2 size={14} className="mr-2 animate-spin" />}
         Create customer
       </Button>
@@ -87,7 +161,10 @@ function CustomerForm({ onSuccess }: { onSuccess: () => void }) {
 export default function CustomersPage() {
   const router = useRouter()
   const [open, setOpen] = useState(false)
-  const { data: customers, isLoading, error } = useQuery({ queryKey: ["customers"], queryFn: getCustomers })
+  const { data: customers, isLoading, error } = useQuery({
+    queryKey: ["customers"],
+    queryFn: getCustomers,
+  })
 
   return (
     <div className="flex h-full flex-col">
@@ -101,7 +178,9 @@ export default function CustomersPage() {
             <Plus size={14} /> New customer
           </SheetTrigger>
           <SheetContent>
-            <SheetHeader><SheetTitle>New customer</SheetTitle></SheetHeader>
+            <SheetHeader>
+              <SheetTitle>New customer</SheetTitle>
+            </SheetHeader>
             <CustomerForm onSuccess={() => setOpen(false)} />
           </SheetContent>
         </Sheet>
@@ -110,7 +189,17 @@ export default function CustomersPage() {
       <div className="flex-1 overflow-auto px-6 py-4">
         {isLoading && <p className="text-sm text-muted-foreground">Loading…</p>}
         {error && <p className="text-sm text-destructive">{(error as Error).message}</p>}
-        {customers && (
+
+        {customers && customers.length === 0 && (
+          <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
+            <p className="text-sm text-muted-foreground">No customers yet.</p>
+            <Button size="sm" onClick={() => setOpen(true)}>
+              <Plus size={14} className="mr-1" /> Add your first customer
+            </Button>
+          </div>
+        )}
+
+        {customers && customers.length > 0 && (
           <Table>
             <TableHeader>
               <TableRow>
@@ -132,7 +221,9 @@ export default function CustomersPage() {
                   </TableCell>
                   <TableCell>
                     <div className="flex flex-wrap gap-1">
-                      {c.products_used.map((p) => <Badge key={p} variant="outline">{p}</Badge>)}
+                      {c.products_used.map((p) => (
+                        <Badge key={p} variant="outline">{p}</Badge>
+                      ))}
                     </div>
                   </TableCell>
                 </TableRow>
