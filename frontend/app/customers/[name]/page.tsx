@@ -1,9 +1,9 @@
 "use client"
 
-import { use, useState } from "react"
+import { use, useState, useRef, type KeyboardEvent } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { useRouter } from "next/navigation"
-import { ArrowLeft, Trash2, Loader2, FileText, Plus, Pencil } from "lucide-react"
+import { ArrowLeft, Trash2, Loader2, FileText, Plus, Pencil, X, Check } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
@@ -21,10 +21,167 @@ import {
   generateReport,
   saveReport,
   approveReport,
+  updateCustomer,
 } from "@/lib/api"
-import type { CustomerDocument, ReportPreview } from "@/types/api"
+import type { Customer, CustomerDocument, ReportPreview } from "@/types/api"
 
 const PRIORITY_VARIANT = { high: "destructive", medium: "secondary", low: "outline" } as const
+const PRIORITIES = ["low", "medium", "high"] as const
+
+// --- Customer edit form ---
+
+function CustomerEditForm({
+  customer,
+  onSave,
+  onCancel,
+}: {
+  customer: Customer
+  onSave: (data: Partial<Customer>) => void
+  onCancel: () => void
+}) {
+  const [name, setName] = useState(customer.name)
+  const [description, setDescription] = useState(customer.description)
+  const [priority, setPriority] = useState(customer.priority)
+  const [notes, setNotes] = useState(customer.notes ?? "")
+  const [products, setProducts] = useState<string[]>(customer.products_used)
+  const [productInput, setProductInput] = useState("")
+  const productInputRef = useRef<HTMLInputElement>(null)
+
+  function addProduct(value: string) {
+    const trimmed = value.trim().replace(/,$/, "")
+    if (trimmed && !products.includes(trimmed)) {
+      setProducts((p) => [...p, trimmed])
+    }
+    setProductInput("")
+  }
+
+  function handleProductKeyDown(e: KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Enter" || e.key === ",") {
+      e.preventDefault()
+      addProduct(productInput)
+    } else if (e.key === "Backspace" && productInput === "" && products.length > 0) {
+      setProducts((p) => p.slice(0, -1))
+    }
+  }
+
+  function removeProduct(product: string) {
+    setProducts((p) => p.filter((x) => x !== product))
+  }
+
+  function handleSave() {
+    onSave({
+      name: name.trim(),
+      description: description.trim(),
+      priority,
+      notes: notes.trim() || null,
+      products_used: productInput.trim() ? [...products, productInput.trim()] : products,
+    })
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="grid grid-cols-[1fr_auto] gap-3">
+        <div className="flex flex-col gap-1">
+          <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+            Name
+          </label>
+          <input
+            className="w-full rounded-md border border-input bg-background px-3 py-2 text-base font-semibold focus:outline-none focus:ring-2 focus:ring-ring"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+        </div>
+        <div className="flex flex-col gap-1">
+          <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+            Priority
+          </label>
+          <select
+            className="h-[42px] rounded-md border border-input bg-background px-3 text-sm capitalize focus:outline-none focus:ring-2 focus:ring-ring"
+            value={priority}
+            onChange={(e) => setPriority(e.target.value as typeof priority)}
+          >
+            {PRIORITIES.map((p) => (
+              <option key={p} value={p} className="capitalize">
+                {p}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-1">
+        <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+          Description
+        </label>
+        <textarea
+          className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm leading-relaxed resize-none focus:outline-none focus:ring-2 focus:ring-ring"
+          rows={3}
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+        />
+      </div>
+
+      <div className="flex flex-col gap-1">
+        <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+          Products used
+        </label>
+        <div
+          className="flex flex-wrap gap-1.5 rounded-md border border-input bg-background px-2 py-2 min-h-[42px] cursor-text focus-within:ring-2 focus-within:ring-ring"
+          onClick={() => productInputRef.current?.focus()}
+        >
+          {products.map((p) => (
+            <span
+              key={p}
+              className="flex items-center gap-1 rounded bg-secondary px-2 py-0.5 text-sm text-secondary-foreground"
+            >
+              {p}
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); removeProduct(p) }}
+                className="text-muted-foreground hover:text-foreground leading-none"
+                aria-label={`Remove ${p}`}
+              >
+                <X size={12} />
+              </button>
+            </span>
+          ))}
+          <input
+            ref={productInputRef}
+            className="flex-1 min-w-32 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+            placeholder={products.length === 0 ? "Type product name, press Enter to add…" : "Add another…"}
+            value={productInput}
+            onChange={(e) => setProductInput(e.target.value)}
+            onKeyDown={handleProductKeyDown}
+            onBlur={() => productInput.trim() && addProduct(productInput)}
+          />
+        </div>
+        <p className="text-xs text-muted-foreground">Press Enter or comma to add · Backspace to remove last</p>
+      </div>
+
+      <div className="flex flex-col gap-1">
+        <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+          Notes <span className="normal-case font-normal">(optional)</span>
+        </label>
+        <textarea
+          className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm leading-relaxed resize-none focus:outline-none focus:ring-2 focus:ring-ring"
+          rows={2}
+          placeholder="Internal notes, key contacts, renewal dates…"
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+        />
+      </div>
+
+      <div className="flex justify-end gap-2 pt-1">
+        <Button variant="outline" size="sm" onClick={onCancel}>
+          Cancel
+        </Button>
+        <Button size="sm" onClick={handleSave} disabled={!name.trim() || !description.trim()}>
+          <Check size={14} className="mr-1" /> Save changes
+        </Button>
+      </div>
+    </div>
+  )
+}
 
 // --- Impact Tab ---
 
@@ -100,9 +257,7 @@ function ImpactTab({
       </div>
     )
   if (!data?.length)
-    return (
-      <p className="text-sm text-muted-foreground">No relevant roadmap changes found.</p>
-    )
+    return <p className="text-sm text-muted-foreground">No relevant roadmap changes found.</p>
 
   if (preview) {
     return (
@@ -326,13 +481,11 @@ function DocumentForm({
   onSave,
   onCancel,
   saving,
-  error,
 }: {
   initial: DocFormState
   onSave: (data: DocFormState) => void
   onCancel: () => void
   saving: boolean
-  error: string | null
 }) {
   const [title, setTitle] = useState(initial.title)
   const [content, setContent] = useState(initial.content)
@@ -352,7 +505,6 @@ function DocumentForm({
         value={content}
         onChange={(e) => setContent(e.target.value)}
       />
-      {error && <p className="text-xs text-destructive">{error}</p>}
       <div className="flex justify-end gap-2">
         <Button variant="outline" size="sm" onClick={onCancel} disabled={saving}>
           Cancel
@@ -441,7 +593,6 @@ function DocumentsTab({ name }: { name: string }) {
           onSave={(d) => void handleCreate(d)}
           onCancel={() => { setCreating(false); setError(null) }}
           saving={saving}
-          error={null}
         />
       )}
 
@@ -467,7 +618,6 @@ function DocumentsTab({ name }: { name: string }) {
               onSave={(d) => void handleUpdate(doc, d)}
               onCancel={() => { setEditing(null); setError(null) }}
               saving={saving}
-              error={null}
             />
           ) : (
             <div className="flex items-start justify-between px-4 py-3 gap-3">
@@ -517,10 +667,37 @@ export default function CustomerDetailPage({ params }: { params: Promise<{ name:
   const [tab, setTab] = useState<"impact" | "reports" | "documents">("impact")
   const [dateFrom, setDateFrom] = useState("")
   const [dateTo, setDateTo] = useState("")
+  const [isEditing, setIsEditing] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
 
   const { data: customer, isLoading } = useQuery({
     queryKey: ["customer", decodedName],
     queryFn: () => getCustomer(decodedName),
+  })
+
+  const updateMutation = useMutation({
+    mutationFn: (data: Partial<Customer>) =>
+      updateCustomer(decodedName, {
+        name: data.name ?? undefined,
+        description: data.description ?? undefined,
+        products_used: data.products_used ?? undefined,
+        priority: data.priority ?? undefined,
+        notes: data.notes ?? undefined,
+      }),
+    onSuccess: (updated) => {
+      setIsEditing(false)
+      setSaveError(null)
+      void qc.invalidateQueries({ queryKey: ["customers"] })
+      // If name changed, redirect to the new URL
+      if (updated.name !== decodedName) {
+        router.replace(`/customers/${encodeURIComponent(updated.name)}`)
+      } else {
+        void qc.invalidateQueries({ queryKey: ["customer", decodedName] })
+      }
+    },
+    onError: (err) => {
+      setSaveError(err instanceof Error ? err.message : "Failed to save changes.")
+    },
   })
 
   const deleteMutation = useMutation({
@@ -549,29 +726,68 @@ export default function CustomerDetailPage({ params }: { params: Promise<{ name:
   return (
     <div className="flex h-full flex-col">
       <div className="border-b px-6 py-4">
-        <div className="flex items-center gap-2 mb-3">
-          <Button variant="ghost" size="icon" onClick={() => router.push("/customers")}>
+        <div className="flex items-start gap-2 mb-1">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="shrink-0 mt-0.5"
+            onClick={() => router.push("/customers")}
+          >
             <ArrowLeft size={16} />
           </Button>
-          <h1 className="text-lg font-semibold">{customer.name}</h1>
-          <Badge variant={PRIORITY_VARIANT[customer.priority]}>{customer.priority}</Badge>
-        </div>
-        <p className="text-sm text-muted-foreground mb-2">{customer.description}</p>
-        <div className="flex flex-wrap gap-1 mb-3">
-          {customer.products_used.map((p) => <Badge key={p} variant="outline">{p}</Badge>)}
-        </div>
-        {customer.notes && (
-          <p className="text-xs text-muted-foreground italic">{customer.notes}</p>
-        )}
-        <div className="flex justify-end">
-          <Button
-            variant="destructive"
-            size="sm"
-            onClick={confirmDelete}
-            disabled={deleteMutation.isPending}
-          >
-            {deleteMutation.isPending ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
-          </Button>
+
+          <div className="flex-1 min-w-0">
+            {isEditing ? (
+              <>
+                <CustomerEditForm
+                  customer={customer}
+                  onSave={(data) => updateMutation.mutate(data)}
+                  onCancel={() => { setIsEditing(false); setSaveError(null) }}
+                />
+                {saveError && <p className="mt-2 text-xs text-destructive">{saveError}</p>}
+                {updateMutation.isPending && (
+                  <div className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <Loader2 size={12} className="animate-spin" /> Saving…
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h1 className="text-lg font-semibold">{customer.name}</h1>
+                  <Badge variant={PRIORITY_VARIANT[customer.priority]}>{customer.priority}</Badge>
+                </div>
+                <p className="mt-1 text-sm text-muted-foreground">{customer.description}</p>
+                <div className="mt-2 flex flex-wrap gap-1">
+                  {customer.products_used.map((p) => (
+                    <Badge key={p} variant="outline">{p}</Badge>
+                  ))}
+                </div>
+                {customer.notes && (
+                  <p className="mt-2 text-xs text-muted-foreground italic">{customer.notes}</p>
+                )}
+                <div className="mt-3 flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setIsEditing(true)}
+                  >
+                    <Pencil size={14} className="mr-1" /> Edit
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={confirmDelete}
+                    disabled={deleteMutation.isPending}
+                  >
+                    {deleteMutation.isPending
+                      ? <Loader2 size={14} className="animate-spin" />
+                      : <Trash2 size={14} />}
+                  </Button>
+                </div>
+              </>
+            )}
+          </div>
         </div>
       </div>
 

@@ -18,6 +18,7 @@ export interface CustomerCreate {
 }
 
 export interface CustomerUpdate {
+  name?: string | null
   description?: string | null
   products_used?: string[] | null
   priority?: "low" | "medium" | "high" | null

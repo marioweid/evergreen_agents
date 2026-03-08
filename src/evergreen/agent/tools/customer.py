@@ -46,12 +46,13 @@ async def update_customer(pool: asyncpg.Pool, name: str, data: CustomerUpdate) -
     row = await pool.fetchrow(
         """
         UPDATE customers
-        SET description = $2, products_used = $3::jsonb,
-            priority = $4, notes = $5, updated_at = CURRENT_TIMESTAMP
+        SET name = $2, description = $3, products_used = $4::jsonb,
+            priority = $5, notes = $6, updated_at = CURRENT_TIMESTAMP
         WHERE LOWER(name) = LOWER($1)
         RETURNING *
         """,
         name,
+        updated.name,
         updated.description,
         json.dumps(updated.products_used),
         updated.priority,

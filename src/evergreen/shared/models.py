@@ -26,6 +26,7 @@ class CustomerCreate(BaseModel):
 
 
 class CustomerUpdate(BaseModel):
+    name: str | None = None
     description: str | None = None
     products_used: list[str] | None = None
     priority: Literal["low", "medium", "high"] | None = None
