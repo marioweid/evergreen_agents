@@ -17,9 +17,21 @@ import type { ReportPreview } from "@/types/api"
 
 const PRIORITY_VARIANT = { high: "destructive", medium: "secondary", low: "outline" } as const
 
-function ImpactTab({ name, onReportGenerated }: { name: string; onReportGenerated: () => void }) {
-  const [dateFrom, setDateFrom] = useState("")
-  const [dateTo, setDateTo] = useState("")
+function ImpactTab({
+  name,
+  dateFrom,
+  dateTo,
+  onDateFromChange,
+  onDateToChange,
+  onReportGenerated,
+}: {
+  name: string
+  dateFrom: string
+  dateTo: string
+  onDateFromChange: (v: string) => void
+  onDateToChange: (v: string) => void
+  onReportGenerated: () => void
+}) {
   const { data, isLoading } = useQuery({
     queryKey: ["impact", name, dateFrom, dateTo],
     queryFn: () => getCustomerImpact(name, 20, dateFrom || undefined, dateTo || undefined),
@@ -29,6 +41,7 @@ function ImpactTab({ name, onReportGenerated }: { name: string; onReportGenerate
   const [preview, setPreview] = useState<ReportPreview | null>(null)
   const [editedContent, setEditedContent] = useState("")
   const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   function toggle(id: number) {
     setSelected((prev) => {
@@ -41,10 +54,13 @@ function ImpactTab({ name, onReportGenerated }: { name: string; onReportGenerate
 
   async function generate() {
     setGenerating(true)
+    setError(null)
     try {
       const result = await generateReport(name, [...selected])
       setPreview(result)
       setEditedContent(result.content)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to generate report. Please try again.")
     } finally {
       setGenerating(false)
     }
@@ -53,11 +69,14 @@ function ImpactTab({ name, onReportGenerated }: { name: string; onReportGenerate
   async function save(status: "draft" | "approved") {
     if (!preview) return
     setSaving(true)
+    setError(null)
     try {
       await saveReport(name, preview.title, editedContent, status)
       setPreview(null)
       setSelected(new Set())
       onReportGenerated()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save report. Please try again.")
     } finally {
       setSaving(false)
     }
@@ -70,7 +89,7 @@ function ImpactTab({ name, onReportGenerated }: { name: string; onReportGenerate
     return (
       <div className="flex flex-col gap-4">
         <div className="flex items-center gap-2">
-          <Button variant="ghost" size="sm" onClick={() => setPreview(null)}>
+          <Button variant="ghost" size="sm" onClick={() => { setPreview(null); setError(null) }}>
             <ArrowLeft size={14} className="mr-1" /> Back
           </Button>
           <p className="text-sm font-medium truncate">{preview.title}</p>
@@ -81,6 +100,7 @@ function ImpactTab({ name, onReportGenerated }: { name: string; onReportGenerate
           value={editedContent}
           onChange={(e) => setEditedContent(e.target.value)}
         />
+        {error && <p className="text-xs text-destructive">{error}</p>}
         <div className="flex justify-end gap-2">
           <Button variant="outline" size="sm" onClick={() => void save("draft")} disabled={saving}>
             {saving ? <Loader2 size={14} className="mr-2 animate-spin" /> : null}
@@ -99,20 +119,30 @@ function ImpactTab({ name, onReportGenerated }: { name: string; onReportGenerate
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-2">
         <p className="text-xs text-muted-foreground flex-1">Select changes to include in a plain-language report.</p>
-        <input
-          type="date"
-          className="h-8 rounded-md border border-input bg-background px-2 text-xs"
-          value={dateFrom}
-          onChange={(e) => setDateFrom(e.target.value)}
-          aria-label="From date"
-        />
-        <input
-          type="date"
-          className="h-8 rounded-md border border-input bg-background px-2 text-xs"
-          value={dateTo}
-          onChange={(e) => setDateTo(e.target.value)}
-          aria-label="To date"
-        />
+        <div className="flex items-center gap-1">
+          <input
+            type="date"
+            className="h-8 rounded-md border border-input bg-background px-2 text-xs"
+            value={dateFrom}
+            onChange={(e) => onDateFromChange(e.target.value)}
+            aria-label="From date"
+          />
+          {dateFrom && (
+            <button onClick={() => onDateFromChange("")} className="text-muted-foreground hover:text-foreground text-xs" aria-label="Clear from date">×</button>
+          )}
+        </div>
+        <div className="flex items-center gap-1">
+          <input
+            type="date"
+            className="h-8 rounded-md border border-input bg-background px-2 text-xs"
+            value={dateTo}
+            onChange={(e) => onDateToChange(e.target.value)}
+            aria-label="To date"
+          />
+          {dateTo && (
+            <button onClick={() => onDateToChange("")} className="text-muted-foreground hover:text-foreground text-xs" aria-label="Clear to date">×</button>
+          )}
+        </div>
       </div>
       {data.map(({ item, similarity }) => (
         <div
@@ -144,6 +174,7 @@ function ImpactTab({ name, onReportGenerated }: { name: string; onReportGenerate
           </div>
         </div>
       ))}
+      {error && <p className="text-xs text-destructive">{error}</p>}
       {selected.size > 0 && (
         <div className="sticky bottom-0 flex items-center justify-between rounded-lg border bg-background p-3 shadow-md">
           <span className="text-sm text-muted-foreground">
@@ -167,12 +198,16 @@ function ReportsTab({ name }: { name: string }) {
   })
   const [expanded, setExpanded] = useState<number | null>(null)
   const [approving, setApproving] = useState<number | null>(null)
+  const [approveError, setApproveError] = useState<string | null>(null)
 
   async function approve(id: number) {
     setApproving(id)
+    setApproveError(null)
     try {
       await approveReport(id)
       void qc.invalidateQueries({ queryKey: ["reports", name] })
+    } catch (err) {
+      setApproveError(err instanceof Error ? err.message : "Failed to approve report.")
     } finally {
       setApproving(null)
     }
@@ -183,6 +218,7 @@ function ReportsTab({ name }: { name: string }) {
 
   return (
     <div className="space-y-3">
+      {approveError && <p className="text-xs text-destructive">{approveError}</p>}
       {data.map((r) => (
         <div key={r.id} className="rounded-lg border">
           <button
@@ -230,6 +266,8 @@ export default function CustomerDetailPage({ params }: { params: Promise<{ name:
   const router = useRouter()
   const qc = useQueryClient()
   const [tab, setTab] = useState<"impact" | "reports">("impact")
+  const [dateFrom, setDateFrom] = useState("")
+  const [dateTo, setDateTo] = useState("")
 
   const { data: customer, isLoading } = useQuery({
     queryKey: ["customer", decodedName],
@@ -292,6 +330,10 @@ export default function CustomerDetailPage({ params }: { params: Promise<{ name:
         {tab === "impact" && (
           <ImpactTab
             name={decodedName}
+            dateFrom={dateFrom}
+            dateTo={dateTo}
+            onDateFromChange={setDateFrom}
+            onDateToChange={setDateTo}
             onReportGenerated={() => {
               setTab("reports")
               void qc.invalidateQueries({ queryKey: ["reports", decodedName] })

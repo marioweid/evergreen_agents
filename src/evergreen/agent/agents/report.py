@@ -149,4 +149,7 @@ async def save_report(
         drive_note = f"Uploaded to Drive (file_id={drive_file_id})."
 
     report = await insert_report(ctx.deps.pool, customer.id, title, content, drive_file_id)
-    return f"Report saved to database (id={report.id}). {drive_note}"
+    return (
+        f"Report saved as draft (id={report.id}). {drive_note} "
+        f"The customer can review and approve it in the Reports tab."
+    )
