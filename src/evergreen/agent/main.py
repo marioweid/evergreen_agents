@@ -111,12 +111,18 @@ DO $$ BEGIN
         ALTER TABLE reports DROP COLUMN drive_file_id;
     END IF;
 
-    -- Add status column to reports if missing
-    IF EXISTS (
-        SELECT 1 FROM information_schema.tables WHERE table_name = 'reports'
-    ) THEN
-        ALTER TABLE reports ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'approved';
-    END IF;
+    -- Create reports table if it does not exist yet
+    CREATE TABLE IF NOT EXISTS reports (
+        id            SERIAL PRIMARY KEY,
+        customer_id   INTEGER NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+        title         TEXT NOT NULL,
+        content       TEXT NOT NULL,
+        status        TEXT NOT NULL DEFAULT 'draft',
+        generated_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Add status column to reports if it was created before status was introduced
+    ALTER TABLE reports ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'approved';
 
     -- Rebuild customer_documents without Drive columns if needed
     IF EXISTS (
