@@ -27,13 +27,13 @@ jobs:
         run: uv sync --frozen
 
       - name: Ruff lint
-        run: uv run ruff check src/
+        run: uvx ruff check src/
 
       - name: Ruff format
-        run: uv run ruff format --check src/
+        run: uvx ruff format --check src/
 
       - name: Type check
-        run: uv run ty check src/
+        run: uvx ty check src/
 
   frontend:
     name: Frontend lint, type check & build
