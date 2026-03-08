@@ -3,7 +3,7 @@
 import { use, useState, useRef, type KeyboardEvent } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { useRouter } from "next/navigation"
-import { ArrowLeft, Trash2, Loader2, FileText, Plus, Pencil, X, Check } from "lucide-react"
+import { ArrowLeft, Trash2, Loader2, FileText, Plus, Pencil, X, Check, Copy, CopyCheck } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
@@ -400,7 +400,14 @@ function ReportsTab({ name }: { name: string }) {
   const [approving, setApproving] = useState<number | null>(null)
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState<number | null>(null)
+  const [copied, setCopied] = useState<number | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
+
+  async function copy(id: number, content: string) {
+    await navigator.clipboard.writeText(content)
+    setCopied(id)
+    setTimeout(() => setCopied(null), 2000)
+  }
 
   function startEdit(r: { id: number; title: string; content: string }) {
     setEditing(r.id)
@@ -506,6 +513,14 @@ function ReportsTab({ name }: { name: string }) {
                   {approving === r.id ? <Loader2 size={12} className="animate-spin" /> : "Approve"}
                 </Button>
               )}
+              <Button
+                size="icon"
+                variant="ghost"
+                title="Copy to clipboard"
+                onClick={(e) => { e.stopPropagation(); void copy(r.id, r.content) }}
+              >
+                {copied === r.id ? <CopyCheck size={14} className="text-green-600" /> : <Copy size={14} />}
+              </Button>
               <Button
                 size="icon"
                 variant="ghost"
