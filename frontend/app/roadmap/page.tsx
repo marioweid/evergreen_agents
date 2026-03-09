@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { Search, Loader2, RefreshCw } from "lucide-react"
+import { Search, Loader2, RefreshCw, ChevronLeft, ChevronRight } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
@@ -35,14 +35,14 @@ function FilterSelect({
 
 export default function RoadmapPage() {
   const qc = useQueryClient()
-  const [queryParams, setQueryParams] = useState<RoadmapQuery>({ limit: 50 })
+  const [queryParams, setQueryParams] = useState<RoadmapQuery>({ limit: 50, offset: 0 })
   const [searchInput, setSearchInput] = useState("")
   const [syncing, setSyncing] = useState(false)
   const [syncError, setSyncError] = useState<string | null>(null)
 
   const { data: filters } = useQuery({ queryKey: ["roadmap-filters"], queryFn: getRoadmapFilters })
 
-  const { data: items, isLoading, isFetching } = useQuery({
+  const { data, isLoading, isFetching } = useQuery({
     queryKey: ["roadmap", queryParams],
     queryFn: () => getRoadmap(queryParams),
   })
@@ -82,7 +82,7 @@ export default function RoadmapPage() {
   }
 
   function search() {
-    setQueryParams((prev) => ({ ...prev, q: searchInput.trim() || undefined }))
+    setQueryParams((prev) => ({ ...prev, q: searchInput.trim() || undefined, offset: 0 }))
   }
 
   function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
@@ -90,7 +90,21 @@ export default function RoadmapPage() {
   }
 
   function setFilter(key: keyof RoadmapQuery, value: string) {
-    setQueryParams((prev) => ({ ...prev, [key]: value || undefined }))
+    setQueryParams((prev) => ({ ...prev, [key]: value || undefined, offset: 0 }))
+  }
+
+  const limit = queryParams.limit ?? 50
+  const offset = queryParams.offset ?? 0
+  const items = data?.items ?? []
+  const hasMore = data?.has_more ?? false
+  const hasPrev = offset > 0
+
+  function nextPage() {
+    setQueryParams((prev) => ({ ...prev, offset: (prev.offset ?? 0) + limit }))
+  }
+
+  function prevPage() {
+    setQueryParams((prev) => ({ ...prev, offset: Math.max(0, (prev.offset ?? 0) - limit) }))
   }
 
   return (
@@ -99,7 +113,7 @@ export default function RoadmapPage() {
         <div>
           <h1 className="text-lg font-semibold">Roadmap</h1>
           <p className="text-sm text-muted-foreground">
-            M365 roadmap items — {items?.length ?? 0} shown
+            M365 roadmap items — {items.length} shown{offset > 0 ? ` (${offset + 1}–${offset + items.length})` : ""}
             {pipelineStatus?.last_run && !syncing && (
               <span> · Last synced {new Date(pipelineStatus.last_run).toLocaleString()}</span>
             )}
@@ -163,7 +177,7 @@ export default function RoadmapPage() {
 
       <div className="flex-1 overflow-auto px-6 py-4 space-y-2">
         {isLoading && <p className="text-sm text-muted-foreground">Loading…</p>}
-        {items?.map((item) => (
+        {items.map((item) => (
           <div key={item.id} className="rounded-lg border">
             <button
               className="flex w-full items-start justify-between gap-4 px-4 py-3 text-left"
@@ -189,7 +203,32 @@ export default function RoadmapPage() {
             )}
           </div>
         ))}
-        {items?.length === 0 && <p className="text-sm text-muted-foreground">No items found.</p>}
+        {!isLoading && items.length === 0 && (
+          <p className="text-sm text-muted-foreground">No items found.</p>
+        )}
+        {(hasPrev || hasMore) && (
+          <div className="flex items-center justify-between pt-2 pb-1">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={prevPage}
+              disabled={!hasPrev || isFetching}
+            >
+              <ChevronLeft size={14} className="mr-1" /> Previous
+            </Button>
+            <span className="text-xs text-muted-foreground">
+              {offset + 1}–{offset + items.length}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={nextPage}
+              disabled={!hasMore || isFetching}
+            >
+              Next <ChevronRight size={14} className="ml-1" />
+            </Button>
+          </div>
+        )}
       </div>
     </div>
   )

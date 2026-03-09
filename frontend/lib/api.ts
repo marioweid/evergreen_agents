@@ -9,6 +9,7 @@ import type {
   ReportPreview,
   RoadmapFilters,
   RoadmapItem,
+  RoadmapPage,
   RoadmapSearchResult,
 } from "@/types/api"
 
@@ -140,6 +141,7 @@ export interface RoadmapQuery {
   release_date_from?: string
   release_date_to?: string
   limit?: number
+  offset?: number
 }
 
 export const getRoadmap = (params: RoadmapQuery = {}) => {
@@ -151,7 +153,8 @@ export const getRoadmap = (params: RoadmapQuery = {}) => {
   if (params.release_date_from) qs.set("release_date_from", params.release_date_from)
   if (params.release_date_to) qs.set("release_date_to", params.release_date_to)
   if (params.limit) qs.set("limit", String(params.limit))
-  return request<RoadmapItem[]>(`/roadmap?${qs.toString()}`)
+  if (params.offset) qs.set("offset", String(params.offset))
+  return request<RoadmapPage>(`/roadmap?${qs.toString()}`)
 }
 
 export const getRoadmapFilters = () => request<RoadmapFilters>("/roadmap/filters")

@@ -172,6 +172,7 @@ async def browse_roadmap(
     date_from: date | None = None,
     date_to: date | None = None,
     limit: int = 50,
+    offset: int = 0,
 ) -> list[RoadmapItem]:
     """List or search roadmap items with optional filters.
 
@@ -208,6 +209,8 @@ async def browse_roadmap(
 
     params.append(limit)
     limit_param = f"${len(params)}"
+    params.append(offset)
+    offset_param = f"${len(params)}"
 
     where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
 
@@ -220,6 +223,7 @@ async def browse_roadmap(
             {where}
             ORDER BY embedding <=> {embedding_param}::vector
             LIMIT {limit_param}
+            OFFSET {offset_param}
         """
     else:
         query = f"""
@@ -230,6 +234,7 @@ async def browse_roadmap(
             {where}
             ORDER BY updated_at DESC
             LIMIT {limit_param}
+            OFFSET {offset_param}
         """
 
     rows = await pool.fetch(query, *params)

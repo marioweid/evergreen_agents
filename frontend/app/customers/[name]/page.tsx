@@ -202,9 +202,10 @@ function ImpactTab({
   onDateToChange: (v: string) => void
   onReportGenerated: () => void
 }) {
-  const { data, isLoading } = useQuery({
-    queryKey: ["impact", name, dateFrom, dateTo],
-    queryFn: () => getCustomerImpact(name, 20, dateFrom || undefined, dateTo || undefined),
+  const [limit, setLimit] = useState(20)
+  const { data, isLoading, isFetching } = useQuery({
+    queryKey: ["impact", name, dateFrom, dateTo, limit],
+    queryFn: () => getCustomerImpact(name, limit, dateFrom || undefined, dateTo || undefined),
   })
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [generating, setGenerating] = useState(false)
@@ -294,9 +295,29 @@ function ImpactTab({
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-2">
-        <p className="text-xs text-muted-foreground flex-1">
-          Select changes to include in a plain-language report.
-        </p>
+        <div className="flex items-center gap-2 flex-1">
+          <p className="text-xs text-muted-foreground">
+            Select changes to include in a plain-language report.
+          </p>
+          {data && data.length > 0 && (
+            <div className="flex gap-2">
+              <button
+                className="text-xs text-muted-foreground hover:text-foreground underline-offset-2 hover:underline"
+                onClick={() => setSelected(new Set(data.map((r) => r.item.id)))}
+              >
+                Select all
+              </button>
+              {selected.size > 0 && (
+                <button
+                  className="text-xs text-muted-foreground hover:text-foreground underline-offset-2 hover:underline"
+                  onClick={() => setSelected(new Set())}
+                >
+                  Deselect all
+                </button>
+              )}
+            </div>
+          )}
+        </div>
         <div className="flex items-center gap-1">
           <input
             type="date"
@@ -367,6 +388,18 @@ function ImpactTab({
           </div>
         </div>
       ))}
+      {data.length === limit && (
+        <Button
+          variant="outline"
+          size="sm"
+          className="w-full"
+          onClick={() => setLimit((l) => l + 20)}
+          disabled={isFetching}
+        >
+          {isFetching ? <Loader2 size={14} className="mr-2 animate-spin" /> : null}
+          Load more
+        </Button>
+      )}
       {error && <p className="text-xs text-destructive">{error}</p>}
       {selected.size > 0 && (
         <div className="sticky bottom-0 flex items-center justify-between rounded-lg border bg-background p-3 shadow-md">

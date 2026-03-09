@@ -69,6 +69,11 @@ export interface RoadmapFilters {
   release_phases: string[]
 }
 
+export interface RoadmapPage {
+  items: RoadmapItem[]
+  has_more: boolean
+}
+
 export interface ReportPreview {
   title: string
   content: string

@@ -96,6 +96,11 @@ class SaveReportRequest(BaseModel):
     status: Literal["draft", "approved"] = "draft"
 
 
+class RoadmapPage(BaseModel):
+    items: list[RoadmapItem]
+    has_more: bool
+
+
 _STARTUP_MIGRATION = """
 DO $$ BEGIN
     -- Drop obsolete Drive columns from customers
@@ -336,7 +341,7 @@ async def _generate_curated_report(
 # --- Roadmap REST endpoints ---
 
 
-@app.get("/roadmap", response_model=list[RoadmapItem])
+@app.get("/roadmap", response_model=RoadmapPage)
 async def roadmap_list(
     q: str | None = Query(default=None, description="Semantic search query"),
     product: str | None = Query(default=None, description="Filter by product (substring)"),
@@ -347,12 +352,13 @@ async def roadmap_list(
     release_date_from: date | None = Query(default=None, description="Earliest release date"),
     release_date_to: date | None = Query(default=None, description="Latest release date"),
     limit: int = Query(default=50, ge=1, le=200),
-) -> list[RoadmapItem]:
+    offset: int = Query(default=0, ge=0),
+) -> RoadmapPage:
     pool = await get_pool(DATABASE_URL)
     embedding: list[float] | None = None
     if q:
         embedding = await embed_query(q, OPENAI_API_KEY)
-    return await browse_roadmap(
+    rows = await browse_roadmap(
         pool,
         embedding=embedding,
         product=product,
@@ -360,8 +366,10 @@ async def roadmap_list(
         release_phase=release_phase,
         date_from=release_date_from,
         date_to=release_date_to,
-        limit=limit,
+        limit=limit + 1,
+        offset=offset,
     )
+    return RoadmapPage(items=rows[:limit], has_more=len(rows) > limit)
 
 
 @app.get("/roadmap/filters", response_model=RoadmapFilters)
