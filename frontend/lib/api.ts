@@ -173,11 +173,12 @@ export async function streamQuery(
   history: ChatMessage[],
   onDelta: (delta: string) => void,
   signal?: AbortSignal,
+  customerName?: string,
 ): Promise<ChatMessage[]> {
   const res = await fetch(`${BASE}/query/stream`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ query, history }),
+    body: JSON.stringify({ query, history, customer_name: customerName ?? null }),
     signal,
   })
   if (!res.ok || !res.body) throw new Error(`${res.status}: stream failed`)

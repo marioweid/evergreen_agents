@@ -1,9 +1,11 @@
 "use client"
 
-import { use, useState, useRef, type KeyboardEvent } from "react"
+import { use, useState, useRef, useEffect, type KeyboardEvent } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { useRouter } from "next/navigation"
-import { ArrowLeft, Trash2, Loader2, FileText, Plus, Pencil, X, Check, Copy, CopyCheck } from "lucide-react"
+import { ArrowLeft, Trash2, Loader2, FileText, Plus, Pencil, X, Check, Copy, CopyCheck, Send } from "lucide-react"
+import ReactMarkdown from "react-markdown"
+import remarkGfm from "remark-gfm"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
@@ -24,8 +26,41 @@ import {
   updateReport,
   deleteReport,
   updateCustomer,
+  streamQuery,
+  type ChatMessage,
 } from "@/lib/api"
 import type { Customer, CustomerDocument, ReportPreview } from "@/types/api"
+
+function MarkdownContent({ content }: { content: string }) {
+  return (
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      components={{
+        p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+        ul: ({ children }) => <ul className="mb-2 list-disc pl-4 space-y-1">{children}</ul>,
+        ol: ({ children }) => <ol className="mb-2 list-decimal pl-4 space-y-1">{children}</ol>,
+        li: ({ children }) => <li className="leading-relaxed">{children}</li>,
+        h1: ({ children }) => <h1 className="text-base font-bold mb-2 mt-3 first:mt-0">{children}</h1>,
+        h2: ({ children }) => <h2 className="text-sm font-bold mb-1.5 mt-3 first:mt-0">{children}</h2>,
+        h3: ({ children }) => <h3 className="text-sm font-semibold mb-1 mt-2 first:mt-0">{children}</h3>,
+        strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
+        code: ({ children }) => (
+          <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">{children}</code>
+        ),
+        pre: ({ children }) => (
+          <pre className="mb-2 overflow-x-auto rounded bg-muted p-2 text-xs font-mono">{children}</pre>
+        ),
+        a: ({ href, children }) => (
+          <a href={href} target="_blank" rel="noopener noreferrer" className="underline hover:no-underline">
+            {children}
+          </a>
+        ),
+      }}
+    >
+      {content}
+    </ReactMarkdown>
+  )
+}
 
 const PRIORITY_VARIANT = { high: "destructive", medium: "secondary", low: "outline" } as const
 const PRIORITIES = ["low", "medium", "high"] as const
@@ -599,7 +634,9 @@ function ReportsTab({ name }: { name: string }) {
                   </div>
                 </div>
               ) : (
-                <pre className="whitespace-pre-wrap text-sm leading-relaxed">{r.content}</pre>
+                <div className="text-sm leading-relaxed">
+                  <MarkdownContent content={r.content} />
+                </div>
               )}
             </div>
           )}
@@ -797,6 +834,116 @@ function DocumentsTab({ name }: { name: string }) {
   )
 }
 
+// --- Chat Tab ---
+
+function CustomerChatTab({ customerName }: { customerName: string }) {
+  const [history, setHistory] = useState<ChatMessage[]>([])
+  const [input, setInput] = useState("")
+  const [streaming, setStreaming] = useState(false)
+  const [pendingChunks, setPendingChunks] = useState("")
+  const abortRef = useRef<AbortController | null>(null)
+  const bottomRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" })
+  }, [history, pendingChunks])
+
+  async function send() {
+    const q = input.trim()
+    if (!q || streaming) return
+    setInput("")
+    setStreaming(true)
+    setPendingChunks("")
+    abortRef.current = new AbortController()
+    try {
+      const updated = await streamQuery(
+        q,
+        history,
+        (delta) => setPendingChunks((prev) => prev + delta),
+        abortRef.current.signal,
+        customerName,
+      )
+      setHistory(updated)
+      setPendingChunks("")
+    } catch (err) {
+      if (err instanceof Error && err.name !== "AbortError") {
+        setHistory((h) => [
+          ...h,
+          { role: "user" as const, content: q },
+          { role: "assistant" as const, content: "Something went wrong. Please try again." },
+        ])
+      }
+      setPendingChunks("")
+    } finally {
+      setStreaming(false)
+    }
+  }
+
+  function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault()
+      void send()
+    }
+  }
+
+  return (
+    <div className="flex flex-col min-h-full">
+      <div className="flex-1 space-y-4 pb-4">
+        {history.length === 0 && !streaming && (
+          <p className="text-sm text-muted-foreground py-6 text-center">
+            Ask anything about {customerName} and their M365 roadmap.
+          </p>
+        )}
+        {history.map((msg, i) => (
+          <div key={i} className={cn("flex", msg.role === "user" ? "justify-end" : "justify-start")}>
+            <div
+              className={cn(
+                "max-w-[85%] rounded-lg px-4 py-2 text-sm",
+                msg.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted",
+              )}
+            >
+              {msg.role === "user" ? (
+                <p className="whitespace-pre-wrap">{msg.content}</p>
+              ) : (
+                <MarkdownContent content={msg.content} />
+              )}
+            </div>
+          </div>
+        ))}
+        {streaming && pendingChunks && (
+          <div className="flex justify-start">
+            <div className="max-w-[85%] rounded-lg px-4 py-2 text-sm bg-muted">
+              <MarkdownContent content={pendingChunks} />
+            </div>
+          </div>
+        )}
+        {streaming && !pendingChunks && (
+          <div className="flex justify-start">
+            <div className="rounded-lg px-4 py-2 bg-muted">
+              <Loader2 size={14} className="animate-spin text-muted-foreground" />
+            </div>
+          </div>
+        )}
+        <div ref={bottomRef} />
+      </div>
+      <div className="sticky bottom-0 bg-background border-t -mx-6 px-4 py-3 flex gap-2">
+        <textarea
+          className="flex-1 resize-none rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+          placeholder={`Ask about ${customerName}…`}
+          rows={1}
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={handleKeyDown}
+          disabled={streaming}
+        />
+        <Button size="icon" onClick={() => void send()} disabled={!input.trim() || streaming}>
+          {streaming ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+        </Button>
+      </div>
+    </div>
+  )
+}
+
 // --- Page ---
 
 export default function CustomerDetailPage({ params }: { params: Promise<{ name: string }> }) {
@@ -804,7 +951,7 @@ export default function CustomerDetailPage({ params }: { params: Promise<{ name:
   const decodedName = decodeURIComponent(name)
   const router = useRouter()
   const qc = useQueryClient()
-  const [tab, setTab] = useState<"impact" | "reports" | "documents">("impact")
+  const [tab, setTab] = useState<"impact" | "reports" | "documents" | "chat">("impact")
   const [dateFrom, setDateFrom] = useState("")
   const [dateTo, setDateTo] = useState("")
   const [isEditing, setIsEditing] = useState(false)
@@ -933,7 +1080,7 @@ export default function CustomerDetailPage({ params }: { params: Promise<{ name:
 
       <div className="border-b px-6">
         <div className="flex gap-4">
-          {(["impact", "reports", "documents"] as const).map((t) => (
+          {(["impact", "reports", "documents", "chat"] as const).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -962,6 +1109,7 @@ export default function CustomerDetailPage({ params }: { params: Promise<{ name:
         )}
         {tab === "reports" && <ReportsTab name={decodedName} />}
         {tab === "documents" && <DocumentsTab name={decodedName} />}
+        {tab === "chat" && <CustomerChatTab customerName={decodedName} />}
       </div>
     </div>
   )

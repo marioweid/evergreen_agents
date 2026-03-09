@@ -75,6 +75,7 @@ class ChatMessage(BaseModel):
 class QueryRequest(BaseModel):
     query: str
     history: list[ChatMessage] = []
+    customer_name: str | None = None
 
 
 class QueryResponse(BaseModel):
@@ -268,13 +269,30 @@ def _to_model_messages(history: list[ChatMessage]) -> list[ModelMessage]:
 
 
 async def _sse_stream(
-    query: str, history: list[ChatMessage], deps: OrchestratorDeps
+    query: str,
+    history: list[ChatMessage],
+    deps: OrchestratorDeps,
+    customer_name: str | None = None,
 ) -> AsyncGenerator[str]:
     rewritten = await _rewrite_query(query, history, deps.openai_api_key)
+    agent_query = rewritten
+    if customer_name:
+        customer = await get_customer(deps.pool, customer_name)
+        if customer:
+            ctx_lines = [
+                f"Name: {customer.name}",
+                f"Products used: {', '.join(customer.products_used)}",
+                f"Priority: {customer.priority}",
+                f"Description: {customer.description}",
+            ]
+            if customer.notes:
+                ctx_lines.append(f"Notes: {customer.notes}")
+            ctx = "\n".join(ctx_lines)
+            agent_query = f"[Customer context]\n{ctx}\n\n[User question]\n{rewritten}"
     message_history = _to_model_messages(history)
     full_response = ""
     async with orchestrator.run_stream(
-        rewritten, deps=deps, message_history=message_history
+        agent_query, deps=deps, message_history=message_history
     ) as result:
         async for chunk in result.stream_text(delta=True):
             full_response += chunk
@@ -293,7 +311,7 @@ async def query_stream(request: QueryRequest) -> StreamingResponse:
     pool = await get_pool(DATABASE_URL)
     deps = OrchestratorDeps(pool=pool, openai_api_key=OPENAI_API_KEY)
     return StreamingResponse(
-        _sse_stream(request.query, request.history, deps),
+        _sse_stream(request.query, request.history, deps, customer_name=request.customer_name),
         media_type="text/event-stream",
         headers={"X-Accel-Buffering": "no"},
     )
