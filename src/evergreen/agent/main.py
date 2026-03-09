@@ -199,6 +199,9 @@ DO $$ BEGIN
     -- Customer contacts (name, email, optional role)
     ALTER TABLE customers ADD COLUMN IF NOT EXISTS contacts JSONB NOT NULL DEFAULT '[]'::jsonb;
 
+    -- Customer health status
+    ALTER TABLE customers ADD COLUMN IF NOT EXISTS status TEXT;
+
     -- Roadmap change log
     CREATE TABLE IF NOT EXISTS roadmap_changes (
         id          SERIAL PRIMARY KEY,

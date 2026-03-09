@@ -4,12 +4,15 @@ export interface CustomerContact {
   role: string | null
 }
 
+export type CustomerStatus = "active" | "at_risk" | "churning" | "churned"
+
 export interface Customer {
   id: number | null
   name: string
   description: string
   products_used: string[]
   priority: "low" | "medium" | "high"
+  status: CustomerStatus | null
   notes: string | null
   report_template: string | null
   contacts: CustomerContact[]
@@ -30,6 +33,7 @@ export interface CustomerUpdate {
   description?: string | null
   products_used?: string[] | null
   priority?: "low" | "medium" | "high" | null
+  status?: CustomerStatus | null
   notes?: string | null
   report_template?: string | null
   contacts?: CustomerContact[] | null

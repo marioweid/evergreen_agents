@@ -12,12 +12,16 @@ class CustomerContact(BaseModel):
     role: str | None = None
 
 
+CustomerStatus = Literal["active", "at_risk", "churning", "churned"]
+
+
 class Customer(BaseModel):
     id: int | None = None
     name: str
     description: str
     products_used: list[str]
     priority: Literal["low", "medium", "high"] = "medium"
+    status: CustomerStatus | None = None
     notes: str | None = None
     report_template: str | None = None
     contacts: list[CustomerContact] = Field(default_factory=list)
@@ -30,6 +34,7 @@ class CustomerCreate(BaseModel):
     description: str
     products_used: list[str]
     priority: Literal["low", "medium", "high"] = "medium"
+    status: CustomerStatus | None = None
     notes: str | None = None
     contacts: list[CustomerContact] = Field(default_factory=list)
 
@@ -39,6 +44,7 @@ class CustomerUpdate(BaseModel):
     description: str | None = None
     products_used: list[str] | None = None
     priority: Literal["low", "medium", "high"] | None = None
+    status: CustomerStatus | None = None
     notes: str | None = None
     report_template: str | None = None
     contacts: list[CustomerContact] | None = None

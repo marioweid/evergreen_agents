@@ -29,7 +29,8 @@ import {
   streamQuery,
   type ChatMessage,
 } from "@/lib/api"
-import type { Customer, CustomerContact, CustomerDocument, ReportPreview } from "@/types/api"
+import type { Customer, CustomerContact, CustomerDocument, CustomerStatus, ReportPreview } from "@/types/api"
+import { STATUS_STYLE } from "@/app/customers/page"
 
 function MarkdownContent({ content }: { content: string }) {
   return (
@@ -79,6 +80,7 @@ function CustomerEditForm({
   const [name, setName] = useState(customer.name)
   const [description, setDescription] = useState(customer.description)
   const [priority, setPriority] = useState(customer.priority)
+  const [status, setStatus] = useState<CustomerStatus | "">(customer.status ?? "")
   const [notes, setNotes] = useState(customer.notes ?? "")
   const [reportTemplate, setReportTemplate] = useState(customer.report_template ?? "")
   const [products, setProducts] = useState<string[]>(customer.products_used)
@@ -126,6 +128,7 @@ function CustomerEditForm({
       name: name.trim(),
       description: description.trim(),
       priority,
+      status: status || null,
       notes: notes.trim() || null,
       report_template: reportTemplate.trim() || null,
       products_used: productInput.trim() ? [...products, productInput.trim()] : products,
@@ -135,7 +138,7 @@ function CustomerEditForm({
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="grid grid-cols-[1fr_auto] gap-3">
+      <div className="grid grid-cols-[1fr_auto_auto] gap-3">
         <div className="flex flex-col gap-1">
           <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
             Name
@@ -160,6 +163,22 @@ function CustomerEditForm({
                 {p}
               </option>
             ))}
+          </select>
+        </div>
+        <div className="flex flex-col gap-1">
+          <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+            Status
+          </label>
+          <select
+            className="h-[42px] rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+            value={status}
+            onChange={(e) => setStatus(e.target.value as CustomerStatus | "")}
+          >
+            <option value="">None</option>
+            <option value="active">Active</option>
+            <option value="at_risk">At risk</option>
+            <option value="churning">Churning</option>
+            <option value="churned">Churned</option>
           </select>
         </div>
       </div>
@@ -1028,6 +1047,83 @@ function CustomerChatTab({ customerName }: { customerName: string }) {
   )
 }
 
+// --- Meeting Prep Tab ---
+
+const PREP_PROMPT = (name: string) =>
+  `Generate a concise pre-meeting briefing for my weekly M365 review meeting with ${name}. ` +
+  `Structure it as:\n` +
+  `## What's changed\n` +
+  `List the most relevant recent M365 roadmap changes for this customer (releases, rollouts, cancellations).\n\n` +
+  `## What to highlight\n` +
+  `2–3 items worth demoing or flagging in the meeting based on their products and priorities.\n\n` +
+  `## Questions & follow-ups\n` +
+  `Suggested questions to ask or things to follow up on based on their notes and documents.\n\n` +
+  `Keep it concise — this is a briefing for me, not a customer-facing report.`
+
+function MeetingPrepTab({ customerName }: { customerName: string }) {
+  const [briefing, setBriefing] = useState("")
+  const [streaming, setStreaming] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const abortRef = useRef<AbortController | null>(null)
+
+  async function generate() {
+    setBriefing("")
+    setError(null)
+    setStreaming(true)
+    abortRef.current = new AbortController()
+    try {
+      await streamQuery(
+        PREP_PROMPT(customerName),
+        [],
+        (delta) => setBriefing((prev) => prev + delta),
+        abortRef.current.signal,
+        customerName,
+      )
+    } catch (err) {
+      if (err instanceof Error && err.name !== "AbortError") {
+        setError("Failed to generate briefing. Please try again.")
+      }
+    } finally {
+      setStreaming(false)
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-sm font-medium">Meeting briefing</p>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            A private AI-generated briefing to prepare for your weekly meeting. Not shared with the customer.
+          </p>
+        </div>
+        <Button size="sm" onClick={() => void generate()} disabled={streaming}>
+          {streaming
+            ? <><Loader2 size={14} className="mr-2 animate-spin" /> Generating…</>
+            : briefing ? "Regenerate" : "Generate briefing"}
+        </Button>
+      </div>
+
+      {error && <p className="text-xs text-destructive">{error}</p>}
+
+      {!briefing && !streaming && (
+        <div className="rounded-lg border border-dashed p-8 text-center">
+          <p className="text-sm text-muted-foreground">
+            Click &ldquo;Generate briefing&rdquo; to get a concise prep summary for this customer.
+          </p>
+        </div>
+      )}
+
+      {(briefing || streaming) && (
+        <div className="rounded-lg border bg-muted/30 px-5 py-4 text-sm leading-relaxed">
+          <MarkdownContent content={briefing} />
+          {streaming && <span className="inline-block w-1.5 h-4 bg-foreground/60 animate-pulse ml-0.5 align-middle" />}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // --- Page ---
 
 export default function CustomerDetailPage({ params }: { params: Promise<{ name: string }> }) {
@@ -1035,7 +1131,7 @@ export default function CustomerDetailPage({ params }: { params: Promise<{ name:
   const decodedName = decodeURIComponent(name)
   const router = useRouter()
   const qc = useQueryClient()
-  const [tab, setTab] = useState<"impact" | "reports" | "documents" | "chat">("impact")
+  const [tab, setTab] = useState<"impact" | "reports" | "documents" | "chat" | "prep">("impact")
   const [dateFrom, setDateFrom] = useState("")
   const [dateTo, setDateTo] = useState("")
   const [isEditing, setIsEditing] = useState(false)
@@ -1053,6 +1149,7 @@ export default function CustomerDetailPage({ params }: { params: Promise<{ name:
         description: data.description ?? undefined,
         products_used: data.products_used ?? undefined,
         priority: data.priority ?? undefined,
+        status: data.status ?? null,
         notes: data.notes ?? undefined,
         report_template: data.report_template ?? undefined,
         contacts: data.contacts ?? undefined,
@@ -1129,6 +1226,14 @@ export default function CustomerDetailPage({ params }: { params: Promise<{ name:
                 <div className="flex items-center gap-2 flex-wrap">
                   <h1 className="text-lg font-semibold">{customer.name}</h1>
                   <Badge variant={PRIORITY_VARIANT[customer.priority]}>{customer.priority}</Badge>
+                  {customer.status && (() => {
+                    const s = STATUS_STYLE[customer.status]
+                    return s ? (
+                      <span className={`rounded px-1.5 py-0.5 text-xs font-medium ${s.className}`}>
+                        {s.label}
+                      </span>
+                    ) : null
+                  })()}
                 </div>
                 <p className="mt-1 text-sm text-muted-foreground">{customer.description}</p>
                 <div className="mt-2 flex flex-wrap gap-1">
@@ -1183,13 +1288,13 @@ export default function CustomerDetailPage({ params }: { params: Promise<{ name:
 
       <div className="border-b px-6">
         <div className="flex gap-4">
-          {(["impact", "reports", "documents", "chat"] as const).map((t) => (
+          {(["impact", "reports", "documents", "chat", "prep"] as const).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
-              className={`py-3 text-sm border-b-2 transition-colors capitalize ${tab === t ? "border-primary font-medium" : "border-transparent text-muted-foreground hover:text-foreground"}`}
+              className={`py-3 text-sm border-b-2 transition-colors ${tab === t ? "border-primary font-medium" : "border-transparent text-muted-foreground hover:text-foreground"}`}
             >
-              {t}
+              {t === "prep" ? "Meeting prep" : t.charAt(0).toUpperCase() + t.slice(1)}
             </button>
           ))}
         </div>
@@ -1213,6 +1318,7 @@ export default function CustomerDetailPage({ params }: { params: Promise<{ name:
         {tab === "reports" && <ReportsTab name={decodedName} />}
         {tab === "documents" && <DocumentsTab name={decodedName} />}
         {tab === "chat" && <CustomerChatTab customerName={decodedName} />}
+        {tab === "prep" && <MeetingPrepTab customerName={decodedName} />}
       </div>
     </div>
   )
