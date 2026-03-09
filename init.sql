@@ -54,6 +54,17 @@ CREATE TABLE IF NOT EXISTS reports (
     generated_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS roadmap_changes (
+    id          SERIAL PRIMARY KEY,
+    item_id     INTEGER NOT NULL,
+    item_title  TEXT NOT NULL,
+    change_type TEXT NOT NULL,
+    old_value   TEXT,
+    new_value   TEXT,
+    sync_id     TEXT NOT NULL,
+    detected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Created after initial data load for performance
 -- CREATE INDEX IF NOT EXISTS roadmap_embedding_idx
 --     ON roadmap_items USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);

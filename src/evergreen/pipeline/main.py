@@ -3,11 +3,16 @@
 import asyncio
 import logging
 import os
+from datetime import datetime
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-from evergreen.pipeline.database import get_existing_documents, upsert_roadmap_items
+from evergreen.pipeline.database import (
+    get_existing_item_states,
+    record_roadmap_changes,
+    upsert_roadmap_items,
+)
 from evergreen.pipeline.embedder import build_document, embed_texts
 from evergreen.pipeline.fetcher import fetch_roadmap_items
 from evergreen.shared.database import close_pool, get_pool
@@ -33,14 +38,25 @@ async def run_ingestion() -> None:
     all_items = await fetch_roadmap_items()
     logger.info("Fetched %d roadmap items", len(all_items))
 
-    existing_docs = await get_existing_documents(pool)
+    existing = await get_existing_item_states(pool)
+    sync_id = datetime.now().isoformat()
 
-    # Only process items that are new or whose content has changed
+    change_count = await record_roadmap_changes(pool, all_items, existing, sync_id)
+    if change_count:
+        logger.info("Recorded %d roadmap changes (sync_id=%s)", change_count, sync_id)
+
+    # Process items that are new or where document, status, or phase changed
     changed_items = []
     changed_docs = []
     for item in all_items:
         doc = build_document(item.title, item.description, item.products)
-        if existing_docs.get(item.id) != doc:
+        old = existing.get(item.id)
+        if (
+            old is None
+            or old["document"] != doc
+            or old["status"] != item.status
+            or old["release_phase"] != item.release_phase
+        ):
             changed_items.append(item)
             changed_docs.append(doc)
 

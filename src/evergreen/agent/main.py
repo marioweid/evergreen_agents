@@ -40,6 +40,7 @@ from evergreen.pipeline.database import (
     insert_report,
     list_customer_documents,
     list_customer_reports,
+    list_roadmap_changes,
     update_customer_document,
     update_report,
     upsert_setting,
@@ -55,6 +56,7 @@ from evergreen.shared.models import (
     CustomerDocumentUpdate,
     CustomerUpdate,
     Report,
+    RoadmapChange,
     RoadmapFilters,
     RoadmapItem,
     RoadmapSearchResult,
@@ -185,6 +187,18 @@ DO $$ BEGIN
 
     -- Per-customer report template
     ALTER TABLE customers ADD COLUMN IF NOT EXISTS report_template TEXT;
+
+    -- Roadmap change log
+    CREATE TABLE IF NOT EXISTS roadmap_changes (
+        id          SERIAL PRIMARY KEY,
+        item_id     INTEGER NOT NULL,
+        item_title  TEXT NOT NULL,
+        change_type TEXT NOT NULL,
+        old_value   TEXT,
+        new_value   TEXT,
+        sync_id     TEXT NOT NULL,
+        detected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
 END $$
 """
 
@@ -194,6 +208,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     logger.info("Starting Evergreen agent on %s:%d", HOST, PORT)
     pool = await get_pool(DATABASE_URL)
     await pool.execute(_STARTUP_MIGRATION)
+    last_run = await get_setting(pool, "pipeline_last_run")
+    last_error = await get_setting(pool, "pipeline_last_error")
+    if last_run:
+        _pipeline["last_run"] = last_run
+    if last_error:
+        _pipeline["error"] = last_error
     yield
     await close_pool()
     logger.info("Evergreen agent shut down")
@@ -221,11 +241,17 @@ _pipeline: dict = {"running": False, "last_run": None, "error": None}
 async def _run_pipeline_task() -> None:
     _pipeline["running"] = True
     _pipeline["error"] = None
+    pool = await get_pool(DATABASE_URL)
     try:
         await run_ingestion()
-        _pipeline["last_run"] = datetime.now().isoformat()
+        last_run = datetime.now().isoformat()
+        _pipeline["last_run"] = last_run
+        await upsert_setting(pool, "pipeline_last_run", last_run)
+        await upsert_setting(pool, "pipeline_last_error", "")
     except Exception as exc:  # noqa: BLE001
-        _pipeline["error"] = str(exc)
+        error_msg = str(exc)
+        _pipeline["error"] = error_msg
+        await upsert_setting(pool, "pipeline_last_error", error_msg)
         logger.error("Pipeline run failed: %s", exc)
     finally:
         _pipeline["running"] = False
@@ -431,6 +457,15 @@ async def roadmap_list(
 async def roadmap_filters() -> RoadmapFilters:
     pool = await get_pool(DATABASE_URL)
     return await get_roadmap_filters(pool)
+
+
+@app.get("/roadmap/changes", response_model=list[RoadmapChange])
+async def roadmap_changes_list(
+    limit: int = Query(default=100, ge=1, le=500),
+    since: str | None = Query(default=None, description="Only changes after this sync_id"),
+) -> list[RoadmapChange]:
+    pool = await get_pool(DATABASE_URL)
+    return await list_roadmap_changes(pool, limit=limit, since=since)
 
 
 @app.get("/roadmap/{item_id}", response_model=RoadmapItem)

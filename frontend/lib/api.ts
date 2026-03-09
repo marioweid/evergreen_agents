@@ -7,6 +7,7 @@ import type {
   CustomerUpdate,
   Report,
   ReportPreview,
+  RoadmapChange,
   RoadmapFilters,
   RoadmapItem,
   RoadmapPage,
@@ -158,6 +159,12 @@ export const getRoadmap = (params: RoadmapQuery = {}) => {
 }
 
 export const getRoadmapFilters = () => request<RoadmapFilters>("/roadmap/filters")
+
+export const getRoadmapChanges = (limit = 100, since?: string) => {
+  const qs = new URLSearchParams({ limit: String(limit) })
+  if (since) qs.set("since", since)
+  return request<RoadmapChange[]>(`/roadmap/changes?${qs.toString()}`)
+}
 
 export const getRoadmapItem = (id: number) => request<RoadmapItem>(`/roadmap/${id}`)
 

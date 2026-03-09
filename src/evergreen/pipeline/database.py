@@ -5,7 +5,7 @@ import logging
 
 import asyncpg
 
-from evergreen.shared.models import CustomerDocument, Report, RoadmapItem
+from evergreen.shared.models import CustomerDocument, Report, RoadmapChange, RoadmapItem
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +28,104 @@ async def upsert_setting(pool: asyncpg.Pool, key: str, value: str) -> str:
         value,
     )
     return row["value"]
+
+
+async def get_existing_item_states(pool: asyncpg.Pool) -> dict[int, dict]:
+    """Return id → {document, status, release_phase} for all existing roadmap items."""
+    rows = await pool.fetch("SELECT id, document, status, release_phase FROM roadmap_items")
+    return {
+        row["id"]: {
+            "document": row["document"],
+            "status": row["status"],
+            "release_phase": row["release_phase"],
+        }
+        for row in rows
+    }
+
+
+async def record_roadmap_changes(
+    pool: asyncpg.Pool,
+    items: list[RoadmapItem],
+    existing: dict[int, dict],
+    sync_id: str,
+) -> int:
+    """Diff items against existing DB state and record any changes. Returns count."""
+    rows: list[tuple] = []
+    for item in items:
+        old = existing.get(item.id)
+        if old is None:
+            rows.append((item.id, item.title, "new", None, item.status, sync_id))
+        else:
+            if item.status != old["status"]:
+                change_type = "cancelled" if item.status == "Cancelled" else "status_changed"
+                rows.append((item.id, item.title, change_type, old["status"], item.status, sync_id))
+            if item.release_phase != old["release_phase"] and item.release_phase is not None:
+                rows.append(
+                    (
+                        item.id,
+                        item.title,
+                        "phase_changed",
+                        old["release_phase"],
+                        item.release_phase,
+                        sync_id,
+                    )
+                )
+    if rows:
+        await pool.executemany(
+            """
+            INSERT INTO roadmap_changes
+                (item_id, item_title, change_type, old_value, new_value, sync_id)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            """,
+            rows,
+        )
+    return len(rows)
+
+
+def _row_to_change(row: asyncpg.Record) -> RoadmapChange:
+    return RoadmapChange(
+        id=row["id"],
+        item_id=row["item_id"],
+        item_title=row["item_title"],
+        change_type=row["change_type"],
+        old_value=row["old_value"],
+        new_value=row["new_value"],
+        sync_id=row["sync_id"],
+        detected_at=row["detected_at"],
+    )
+
+
+async def list_roadmap_changes(
+    pool: asyncpg.Pool,
+    limit: int = 100,
+    since: str | None = None,
+) -> list[RoadmapChange]:
+    """Return recent roadmap changes, optionally filtered to those after a sync_id."""
+    if since:
+        rows = await pool.fetch(
+            """
+            SELECT id, item_id, item_title, change_type, old_value, new_value,
+                   sync_id, detected_at
+            FROM roadmap_changes
+            WHERE sync_id > $1
+            ORDER BY detected_at DESC
+            LIMIT $2
+            """,
+            since,
+            limit,
+        )
+    else:
+        rows = await pool.fetch(
+            """
+            SELECT id, item_id, item_title, change_type, old_value, new_value,
+                   sync_id, detected_at
+            FROM roadmap_changes
+            ORDER BY detected_at DESC
+            LIMIT $1
+            """,
+            limit,
+        )
+    return [_row_to_change(r) for r in rows]
 
 
 async def get_existing_documents(pool: asyncpg.Pool) -> dict[int, str]:

@@ -76,6 +76,17 @@ export interface RoadmapPage {
   has_more: boolean
 }
 
+export interface RoadmapChange {
+  id: number
+  item_id: number
+  item_title: string
+  change_type: "new" | "status_changed" | "phase_changed" | "cancelled"
+  old_value: string | null
+  new_value: string | null
+  sync_id: string
+  detected_at: string
+}
+
 export interface ReportPreview {
   title: string
   content: string

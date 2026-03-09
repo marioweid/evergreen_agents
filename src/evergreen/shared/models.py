@@ -85,6 +85,17 @@ class WeeklyReport(BaseModel):
     generated_at: datetime
 
 
+class RoadmapChange(BaseModel):
+    id: int
+    item_id: int
+    item_title: str
+    change_type: str
+    old_value: str | None = None
+    new_value: str | None = None
+    sync_id: str
+    detected_at: datetime
+
+
 class RoadmapFilters(BaseModel):
     products: list[str]
     statuses: list[str]
