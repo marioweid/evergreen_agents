@@ -3,13 +3,38 @@
 import { useRef, useState, type KeyboardEvent } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { useRouter } from "next/navigation"
-import { Plus, Loader2, X } from "lucide-react"
+import { Plus, Loader2, X, Search, ChevronUp, ChevronDown } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { getCustomers, createCustomer } from "@/lib/api"
+import type { Customer } from "@/types/api"
+
+const PRIORITY_ORDER: Record<string, number> = { high: 0, medium: 1, low: 2 }
+
+type SortKey = "name" | "priority"
+type SortDir = "asc" | "desc"
+
+function sortCustomers(customers: Customer[], key: SortKey, dir: SortDir): Customer[] {
+  return [...customers].sort((a, b) => {
+    let cmp = 0
+    if (key === "name") {
+      cmp = a.name.localeCompare(b.name)
+    } else {
+      cmp = (PRIORITY_ORDER[a.priority] ?? 99) - (PRIORITY_ORDER[b.priority] ?? 99)
+    }
+    return dir === "asc" ? cmp : -cmp
+  })
+}
+
+function SortIcon({ active, dir }: { active: boolean; dir: SortDir }) {
+  if (!active) return <ChevronUp size={12} className="ml-1 opacity-30 inline" />
+  return dir === "asc"
+    ? <ChevronUp size={12} className="ml-1 inline" />
+    : <ChevronDown size={12} className="ml-1 inline" />
+}
 
 const PRIORITY_VARIANT = {
   high: "destructive",
@@ -161,29 +186,64 @@ function CustomerForm({ onSuccess }: { onSuccess: () => void }) {
 export default function CustomersPage() {
   const router = useRouter()
   const [open, setOpen] = useState(false)
+  const [search, setSearch] = useState("")
+  const [sortKey, setSortKey] = useState<SortKey>("name")
+  const [sortDir, setSortDir] = useState<SortDir>("asc")
+
   const { data: customers, isLoading, error } = useQuery({
     queryKey: ["customers"],
     queryFn: getCustomers,
   })
 
+  function toggleSort(key: SortKey) {
+    if (sortKey === key) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"))
+    } else {
+      setSortKey(key)
+      setSortDir("asc")
+    }
+  }
+
+  const q = search.trim().toLowerCase()
+  const filtered = (customers ?? []).filter(
+    (c) =>
+      c.name.toLowerCase().includes(q) ||
+      c.description.toLowerCase().includes(q) ||
+      c.products_used.some((p) => p.toLowerCase().includes(q)),
+  )
+  const displayed = sortCustomers(filtered, sortKey, sortDir)
+
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between border-b px-6 py-4">
+      <div className="flex items-center justify-between border-b px-6 py-4 gap-4">
         <div>
           <h1 className="text-lg font-semibold">Customers</h1>
-          <p className="text-sm text-muted-foreground">{customers?.length ?? 0} total</p>
+          <p className="text-sm text-muted-foreground">
+            {q ? `${displayed.length} of ${customers?.length ?? 0}` : `${customers?.length ?? 0} total`}
+          </p>
         </div>
-        <Sheet open={open} onOpenChange={setOpen}>
-          <SheetTrigger className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90">
-            <Plus size={14} /> New customer
-          </SheetTrigger>
-          <SheetContent>
-            <SheetHeader>
-              <SheetTitle>New customer</SheetTitle>
-            </SheetHeader>
-            <CustomerForm onSuccess={() => setOpen(false)} />
-          </SheetContent>
-        </Sheet>
+        <div className="flex items-center gap-2">
+          <div className="relative">
+            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder="Search…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-8 w-52"
+            />
+          </div>
+          <Sheet open={open} onOpenChange={setOpen}>
+            <SheetTrigger className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90">
+              <Plus size={14} /> New customer
+            </SheetTrigger>
+            <SheetContent>
+              <SheetHeader>
+                <SheetTitle>New customer</SheetTitle>
+              </SheetHeader>
+              <CustomerForm onSuccess={() => setOpen(false)} />
+            </SheetContent>
+          </Sheet>
+        </div>
       </div>
 
       <div className="flex-1 overflow-auto px-6 py-4">
@@ -200,36 +260,53 @@ export default function CustomersPage() {
         )}
 
         {customers && customers.length > 0 && (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Priority</TableHead>
-                <TableHead>Products</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {customers.map((c) => (
-                <TableRow
-                  key={c.name}
-                  className="cursor-pointer"
-                  onClick={() => router.push(`/customers/${encodeURIComponent(c.name)}`)}
-                >
-                  <TableCell className="font-medium">{c.name}</TableCell>
-                  <TableCell>
-                    <Badge variant={PRIORITY_VARIANT[c.priority]}>{c.priority}</Badge>
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex flex-wrap gap-1">
-                      {c.products_used.map((p) => (
-                        <Badge key={p} variant="outline">{p}</Badge>
-                      ))}
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+          <>
+            {displayed.length === 0 && (
+              <p className="text-sm text-muted-foreground">No customers match &ldquo;{search}&rdquo;.</p>
+            )}
+            {displayed.length > 0 && (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead
+                      className="cursor-pointer select-none"
+                      onClick={() => toggleSort("name")}
+                    >
+                      Name <SortIcon active={sortKey === "name"} dir={sortDir} />
+                    </TableHead>
+                    <TableHead
+                      className="cursor-pointer select-none"
+                      onClick={() => toggleSort("priority")}
+                    >
+                      Priority <SortIcon active={sortKey === "priority"} dir={sortDir} />
+                    </TableHead>
+                    <TableHead>Products</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {displayed.map((c) => (
+                    <TableRow
+                      key={c.name}
+                      className="cursor-pointer"
+                      onClick={() => router.push(`/customers/${encodeURIComponent(c.name)}`)}
+                    >
+                      <TableCell className="font-medium">{c.name}</TableCell>
+                      <TableCell>
+                        <Badge variant={PRIORITY_VARIANT[c.priority]}>{c.priority}</Badge>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex flex-wrap gap-1">
+                          {c.products_used.map((p) => (
+                            <Badge key={p} variant="outline">{p}</Badge>
+                          ))}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </>
         )}
       </div>
     </div>
