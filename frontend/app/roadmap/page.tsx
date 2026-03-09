@@ -1,8 +1,8 @@
 "use client"
 
 import { useState } from "react"
-import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { Search, Loader2, RefreshCw, ChevronLeft, ChevronRight } from "lucide-react"
+import { useQuery } from "@tanstack/react-query"
+import { Search, Loader2, ChevronLeft, ChevronRight } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
@@ -12,8 +12,6 @@ import {
   getRoadmap,
   getRoadmapFilters,
   getRoadmapChanges,
-  getPipelineStatus,
-  triggerPipeline,
 } from "@/lib/api"
 import type { RoadmapQuery } from "@/lib/api"
 import type { RoadmapChange } from "@/types/api"
@@ -128,13 +126,9 @@ function ChangesTab() {
 }
 
 export default function RoadmapPage() {
-  const qc = useQueryClient()
   const [tab, setTab] = useState<"browse" | "changes">("browse")
   const [queryParams, setQueryParams] = useState<RoadmapQuery>({ limit: 50, offset: 0 })
   const [searchInput, setSearchInput] = useState("")
-  const [syncing, setSyncing] = useState(false)
-  const [syncError, setSyncError] = useState<string | null>(null)
-
   const { data: filters } = useQuery({ queryKey: ["roadmap-filters"], queryFn: getRoadmapFilters })
 
   const { data, isLoading, isFetching } = useQuery({
@@ -143,39 +137,7 @@ export default function RoadmapPage() {
     enabled: tab === "browse",
   })
 
-  const { data: pipelineStatus } = useQuery({
-    queryKey: ["pipeline-status"],
-    queryFn: getPipelineStatus,
-    refetchInterval: syncing ? 2000 : false,
-  })
-
   const [expanded, setExpanded] = useState<number | null>(null)
-
-  async function sync() {
-    setSyncing(true)
-    setSyncError(null)
-    try {
-      await triggerPipeline()
-      const poll = setInterval(async () => {
-        const status = await getPipelineStatus()
-        void qc.setQueryData(["pipeline-status"], status)
-        if (!status.running) {
-          clearInterval(poll)
-          setSyncing(false)
-          if (status.error) {
-            setSyncError(status.error)
-          } else {
-            void qc.invalidateQueries({ queryKey: ["roadmap"] })
-            void qc.invalidateQueries({ queryKey: ["roadmap-filters"] })
-            void qc.invalidateQueries({ queryKey: ["roadmap-changes"] })
-          }
-        }
-      }, 2000)
-    } catch (err) {
-      setSyncing(false)
-      setSyncError(err instanceof Error ? err.message : "Sync failed.")
-    }
-  }
 
   function search() {
     setQueryParams((prev) => ({ ...prev, q: searchInput.trim() || undefined, offset: 0 }))
@@ -205,23 +167,13 @@ export default function RoadmapPage() {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="border-b px-6 py-4 flex items-center justify-between gap-4">
-        <div>
-          <h1 className="text-lg font-semibold">Roadmap</h1>
-          <p className="text-sm text-muted-foreground">
-            {tab === "browse"
-              ? `${items.length} items shown${offset > 0 ? ` (${offset + 1}–${offset + items.length})` : ""}`
-              : "Changes detected across syncs"}
-            {pipelineStatus?.last_run && !syncing && (
-              <span> · Last synced {new Date(pipelineStatus.last_run).toLocaleString()}</span>
-            )}
-          </p>
-          {syncError && <p className="text-xs text-destructive mt-0.5">{syncError}</p>}
-        </div>
-        <Button variant="outline" size="sm" onClick={() => void sync()} disabled={syncing}>
-          <RefreshCw size={14} className={syncing ? "mr-2 animate-spin" : "mr-2"} />
-          {syncing ? "Syncing…" : "Sync now"}
-        </Button>
+      <div className="border-b px-6 py-4">
+        <h1 className="text-lg font-semibold">Roadmap</h1>
+        <p className="text-sm text-muted-foreground">
+          {tab === "browse"
+            ? `${items.length} items shown${offset > 0 ? ` (${offset + 1}–${offset + items.length})` : ""}`
+            : "Changes detected across syncs"}
+        </p>
       </div>
 
       <div className="border-b px-6 flex gap-4">

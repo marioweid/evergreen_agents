@@ -10,6 +10,7 @@ from apscheduler.triggers.cron import CronTrigger
 
 from evergreen.pipeline.database import (
     get_existing_item_states,
+    get_setting,
     record_roadmap_changes,
     upsert_roadmap_items,
 )
@@ -28,6 +29,25 @@ PIPELINE_CRON = os.getenv("PIPELINE_CRON", "0 2 * * 0")
 RUN_ON_STARTUP = os.getenv("RUN_ON_STARTUP", "true").lower() == "true"
 
 _EMBED_BATCH_SIZE = 100
+
+_scheduler: AsyncIOScheduler | None = None
+_current_cron: str = PIPELINE_CRON
+
+
+async def _check_and_reschedule() -> None:
+    """Re-read pipeline_cron from DB and reschedule the ingestion job if it changed."""
+    global _current_cron
+    pool = await get_pool(DATABASE_URL)
+    stored = await get_setting(pool, "pipeline_cron")
+    new_cron = stored or PIPELINE_CRON
+    if new_cron == _current_cron or _scheduler is None:
+        return
+    try:
+        _scheduler.reschedule_job("ingestion", trigger=CronTrigger.from_crontab(new_cron))
+        _current_cron = new_cron
+        logger.info("Rescheduled ingestion to cron: %s", new_cron)
+    except Exception:
+        logger.exception("Failed to reschedule ingestion — keeping current cron: %s", _current_cron)
 
 
 async def run_ingestion() -> None:
@@ -79,16 +99,29 @@ async def run_ingestion() -> None:
 
 
 async def main() -> None:
-    scheduler = AsyncIOScheduler()
-    scheduler.add_job(
+    global _scheduler, _current_cron
+
+    pool = await get_pool(DATABASE_URL)
+    stored_cron = await get_setting(pool, "pipeline_cron")
+    effective_cron = stored_cron or PIPELINE_CRON
+    _current_cron = effective_cron
+
+    _scheduler = AsyncIOScheduler()
+    _scheduler.add_job(
         run_ingestion,
-        CronTrigger.from_crontab(PIPELINE_CRON),
+        CronTrigger.from_crontab(effective_cron),
         id="ingestion",
         max_instances=1,
         coalesce=True,
     )
-    scheduler.start()
-    logger.info("Scheduler started — roadmap: %s", PIPELINE_CRON)
+    _scheduler.add_job(
+        _check_and_reschedule,
+        "interval",
+        minutes=1,
+        id="cron_check",
+    )
+    _scheduler.start()
+    logger.info("Scheduler started — roadmap: %s", effective_cron)
 
     if RUN_ON_STARTUP:
         await run_ingestion()
@@ -96,7 +129,8 @@ async def main() -> None:
     try:
         await asyncio.Event().wait()
     finally:
-        scheduler.shutdown()
+        if _scheduler is not None:
+            _scheduler.shutdown()
         await close_pool()
 
 

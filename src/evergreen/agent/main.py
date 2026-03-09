@@ -9,6 +9,7 @@ from datetime import date, datetime
 from typing import Literal
 
 import uvicorn
+from apscheduler.triggers.cron import CronTrigger
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
@@ -108,6 +109,13 @@ class RoadmapPage(BaseModel):
 
 class TemplateRequest(BaseModel):
     template: str
+
+
+class CronRequest(BaseModel):
+    cron: str
+
+
+_DEFAULT_PIPELINE_CRON = "0 2 * * 0"  # Sunday 02:00
 
 
 _DEFAULT_REPORT_TEMPLATE = """\
@@ -417,6 +425,24 @@ async def update_report_template(body: TemplateRequest) -> dict:
     pool = await get_pool(DATABASE_URL)
     value = await upsert_setting(pool, "default_report_template", body.template)
     return {"template": value}
+
+
+@app.get("/settings/pipeline-cron")
+async def get_pipeline_cron() -> dict:
+    pool = await get_pool(DATABASE_URL)
+    value = await get_setting(pool, "pipeline_cron")
+    return {"cron": value or _DEFAULT_PIPELINE_CRON}
+
+
+@app.put("/settings/pipeline-cron")
+async def update_pipeline_cron(body: CronRequest) -> dict:
+    try:
+        CronTrigger.from_crontab(body.cron)
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=f"Invalid cron expression: {exc}") from exc
+    pool = await get_pool(DATABASE_URL)
+    value = await upsert_setting(pool, "pipeline_cron", body.cron)
+    return {"cron": value}
 
 
 # --- Roadmap REST endpoints ---

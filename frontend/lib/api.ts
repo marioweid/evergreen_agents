@@ -179,6 +179,15 @@ export const updateDefaultReportTemplate = (template: string) =>
     body: JSON.stringify({ template }),
   })
 
+export const getPipelineCron = () =>
+  request<{ cron: string }>("/settings/pipeline-cron")
+
+export const updatePipelineCron = (cron: string) =>
+  request<{ cron: string }>("/settings/pipeline-cron", {
+    method: "PUT",
+    body: JSON.stringify({ cron }),
+  })
+
 // --- Streaming chat ---
 
 export interface ChatMessage {
