@@ -196,6 +196,9 @@ DO $$ BEGIN
     -- Per-customer report template
     ALTER TABLE customers ADD COLUMN IF NOT EXISTS report_template TEXT;
 
+    -- Customer contacts (name, email, optional role)
+    ALTER TABLE customers ADD COLUMN IF NOT EXISTS contacts JSONB NOT NULL DEFAULT '[]'::jsonb;
+
     -- Roadmap change log
     CREATE TABLE IF NOT EXISTS roadmap_changes (
         id          SERIAL PRIMARY KEY,

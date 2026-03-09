@@ -290,7 +290,12 @@ export default function CustomersPage() {
                       className="cursor-pointer"
                       onClick={() => router.push(`/customers/${encodeURIComponent(c.name)}`)}
                     >
-                      <TableCell className="font-medium">{c.name}</TableCell>
+                      <TableCell>
+                    <p className="font-medium">{c.name}</p>
+                    {c.description && (
+                      <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{c.description}</p>
+                    )}
+                  </TableCell>
                       <TableCell>
                         <Badge variant={PRIORITY_VARIANT[c.priority]}>{c.priority}</Badge>
                       </TableCell>

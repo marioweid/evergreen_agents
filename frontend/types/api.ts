@@ -1,3 +1,9 @@
+export interface CustomerContact {
+  name: string
+  email: string
+  role: string | null
+}
+
 export interface Customer {
   id: number | null
   name: string
@@ -6,6 +12,7 @@ export interface Customer {
   priority: "low" | "medium" | "high"
   notes: string | null
   report_template: string | null
+  contacts: CustomerContact[]
   created_at: string | null
   updated_at: string | null
 }
@@ -25,6 +32,7 @@ export interface CustomerUpdate {
   priority?: "low" | "medium" | "high" | null
   notes?: string | null
   report_template?: string | null
+  contacts?: CustomerContact[] | null
 }
 
 export interface CustomerDocument {

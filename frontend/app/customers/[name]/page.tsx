@@ -29,7 +29,7 @@ import {
   streamQuery,
   type ChatMessage,
 } from "@/lib/api"
-import type { Customer, CustomerDocument, ReportPreview } from "@/types/api"
+import type { Customer, CustomerContact, CustomerDocument, ReportPreview } from "@/types/api"
 
 function MarkdownContent({ content }: { content: string }) {
   return (
@@ -84,6 +84,21 @@ function CustomerEditForm({
   const [products, setProducts] = useState<string[]>(customer.products_used)
   const [productInput, setProductInput] = useState("")
   const productInputRef = useRef<HTMLInputElement>(null)
+  const [contacts, setContacts] = useState<CustomerContact[]>(customer.contacts ?? [])
+
+  function addContact() {
+    setContacts((prev) => [...prev, { name: "", email: "", role: null }])
+  }
+
+  function updateContact(i: number, field: keyof CustomerContact, value: string) {
+    setContacts((prev) => prev.map((c, idx) =>
+      idx === i ? { ...c, [field]: value || (field === "role" ? null : value) } : c
+    ))
+  }
+
+  function removeContact(i: number) {
+    setContacts((prev) => prev.filter((_, idx) => idx !== i))
+  }
 
   function addProduct(value: string) {
     const trimmed = value.trim().replace(/,$/, "")
@@ -114,6 +129,7 @@ function CustomerEditForm({
       notes: notes.trim() || null,
       report_template: reportTemplate.trim() || null,
       products_used: productInput.trim() ? [...products, productInput.trim()] : products,
+      contacts: contacts.filter((c) => c.name.trim() && c.email.trim()),
     })
   }
 
@@ -208,6 +224,55 @@ function CustomerEditForm({
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
         />
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center justify-between">
+          <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+            Contacts
+          </label>
+          <button
+            type="button"
+            onClick={addContact}
+            className="text-xs text-primary hover:underline"
+          >
+            + Add contact
+          </button>
+        </div>
+        {contacts.length === 0 && (
+          <p className="text-xs text-muted-foreground">No contacts yet.</p>
+        )}
+        {contacts.map((c, i) => (
+          <div key={i} className="grid grid-cols-[1fr_1fr_auto] gap-2 items-start">
+            <input
+              className="rounded-md border border-input bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+              placeholder="Name"
+              value={c.name}
+              onChange={(e) => updateContact(i, "name", e.target.value)}
+            />
+            <input
+              className="rounded-md border border-input bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+              placeholder="Email"
+              type="email"
+              value={c.email}
+              onChange={(e) => updateContact(i, "email", e.target.value)}
+            />
+            <button
+              type="button"
+              onClick={() => removeContact(i)}
+              className="mt-1.5 text-muted-foreground hover:text-destructive"
+              aria-label="Remove contact"
+            >
+              <X size={14} />
+            </button>
+            <input
+              className="col-span-2 rounded-md border border-input bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+              placeholder="Role (optional, e.g. IT Manager)"
+              value={c.role ?? ""}
+              onChange={(e) => updateContact(i, "role", e.target.value)}
+            />
+          </div>
+        ))}
       </div>
 
       <div className="flex flex-col gap-1">
@@ -989,6 +1054,8 @@ export default function CustomerDetailPage({ params }: { params: Promise<{ name:
         products_used: data.products_used ?? undefined,
         priority: data.priority ?? undefined,
         notes: data.notes ?? undefined,
+        report_template: data.report_template ?? undefined,
+        contacts: data.contacts ?? undefined,
       }),
     onSuccess: (updated) => {
       setIsEditing(false)
@@ -1071,6 +1138,23 @@ export default function CustomerDetailPage({ params }: { params: Promise<{ name:
                 </div>
                 {customer.notes && (
                   <p className="mt-2 text-xs text-muted-foreground italic">{customer.notes}</p>
+                )}
+                {customer.contacts.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-3">
+                    {customer.contacts.map((c, i) => (
+                      <div key={i} className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                        <span className="font-medium text-foreground">{c.name}</span>
+                        {c.role && <span className="text-muted-foreground">({c.role})</span>}
+                        <a
+                          href={`mailto:${c.email}`}
+                          className="text-primary hover:underline"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          {c.email}
+                        </a>
+                      </div>
+                    ))}
+                  </div>
                 )}
                 <div className="mt-3 flex items-center gap-2">
                   <Button

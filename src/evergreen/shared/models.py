@@ -6,6 +6,12 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 
+class CustomerContact(BaseModel):
+    name: str
+    email: str
+    role: str | None = None
+
+
 class Customer(BaseModel):
     id: int | None = None
     name: str
@@ -14,6 +20,7 @@ class Customer(BaseModel):
     priority: Literal["low", "medium", "high"] = "medium"
     notes: str | None = None
     report_template: str | None = None
+    contacts: list[CustomerContact] = Field(default_factory=list)
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
@@ -24,6 +31,7 @@ class CustomerCreate(BaseModel):
     products_used: list[str]
     priority: Literal["low", "medium", "high"] = "medium"
     notes: str | None = None
+    contacts: list[CustomerContact] = Field(default_factory=list)
 
 
 class CustomerUpdate(BaseModel):
@@ -33,6 +41,7 @@ class CustomerUpdate(BaseModel):
     priority: Literal["low", "medium", "high"] | None = None
     notes: str | None = None
     report_template: str | None = None
+    contacts: list[CustomerContact] | None = None
 
 
 class CustomerDocument(BaseModel):
