@@ -10,6 +10,26 @@ from evergreen.shared.models import CustomerDocument, Report, RoadmapItem
 logger = logging.getLogger(__name__)
 
 
+async def get_setting(pool: asyncpg.Pool, key: str) -> str | None:
+    """Fetch a setting value by key. Returns None if not set."""
+    row = await pool.fetchrow("SELECT value FROM settings WHERE key = $1", key)
+    return row["value"] if row else None
+
+
+async def upsert_setting(pool: asyncpg.Pool, key: str, value: str) -> str:
+    """Insert or update a setting. Returns the stored value."""
+    row = await pool.fetchrow(
+        """
+        INSERT INTO settings (key, value) VALUES ($1, $2)
+        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+        RETURNING value
+        """,
+        key,
+        value,
+    )
+    return row["value"]
+
+
 async def get_existing_documents(pool: asyncpg.Pool) -> dict[int, str]:
     """Return a mapping of item id → stored document text for all existing rows."""
     rows = await pool.fetch("SELECT id, document FROM roadmap_items")

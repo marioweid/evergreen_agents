@@ -80,6 +80,7 @@ function CustomerEditForm({
   const [description, setDescription] = useState(customer.description)
   const [priority, setPriority] = useState(customer.priority)
   const [notes, setNotes] = useState(customer.notes ?? "")
+  const [reportTemplate, setReportTemplate] = useState(customer.report_template ?? "")
   const [products, setProducts] = useState<string[]>(customer.products_used)
   const [productInput, setProductInput] = useState("")
   const productInputRef = useRef<HTMLInputElement>(null)
@@ -111,6 +112,7 @@ function CustomerEditForm({
       description: description.trim(),
       priority,
       notes: notes.trim() || null,
+      report_template: reportTemplate.trim() || null,
       products_used: productInput.trim() ? [...products, productInput.trim()] : products,
     })
   }
@@ -206,6 +208,23 @@ function CustomerEditForm({
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
         />
+      </div>
+
+      <div className="flex flex-col gap-1">
+        <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+          Report template{" "}
+          <span className="normal-case font-normal">(optional — overrides default)</span>
+        </label>
+        <textarea
+          className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm leading-relaxed resize-none focus:outline-none focus:ring-2 focus:ring-ring font-mono"
+          rows={5}
+          placeholder="Leave blank to use the default template…"
+          value={reportTemplate}
+          onChange={(e) => setReportTemplate(e.target.value)}
+        />
+        <p className="text-xs text-muted-foreground">
+          Describes format and tone for AI-generated reports for this customer.
+        </p>
       </div>
 
       <div className="flex justify-end gap-2 pt-1">

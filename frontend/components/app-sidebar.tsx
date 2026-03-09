@@ -2,13 +2,14 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { MessageSquare, Users, Map } from "lucide-react"
+import { MessageSquare, Users, Map, Settings } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 const NAV = [
   { href: "/chat", label: "Chat", icon: MessageSquare },
   { href: "/customers", label: "Customers", icon: Users },
   { href: "/roadmap", label: "Roadmap", icon: Map },
+  { href: "/settings", label: "Settings", icon: Settings },
 ]
 
 export function AppSidebar() {

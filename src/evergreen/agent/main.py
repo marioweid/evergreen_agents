@@ -35,12 +35,14 @@ from evergreen.pipeline.database import (
     approve_report,
     delete_customer_document,
     delete_report,
+    get_setting,
     insert_customer_document,
     insert_report,
     list_customer_documents,
     list_customer_reports,
     update_customer_document,
     update_report,
+    upsert_setting,
 )
 from evergreen.pipeline.embedder import embed_query
 from evergreen.pipeline.main import run_ingestion
@@ -102,6 +104,23 @@ class RoadmapPage(BaseModel):
     has_more: bool
 
 
+class TemplateRequest(BaseModel):
+    template: str
+
+
+_DEFAULT_REPORT_TEMPLATE = """\
+Write a plain-language Microsoft 365 update summary for business users.
+
+Format your report as follows:
+1. Open with a one-sentence summary of the overall theme.
+2. Write one short paragraph per change explaining in practical terms what users \
+will see or be able to do differently. Avoid jargon.
+3. Close with a brief "What this means for you" paragraph tailored to the customer.
+
+Tone: friendly, clear, and jargon-free. Do not use bullet points in the report body.\
+"""
+
+
 _STARTUP_MIGRATION = """
 DO $$ BEGIN
     -- Drop obsolete Drive columns from customers
@@ -157,6 +176,15 @@ DO $$ BEGIN
 
     -- Drop stale Drive index if present
     DROP INDEX IF EXISTS customers_drive_folder_id_idx;
+
+    -- Settings table for global configuration
+    CREATE TABLE IF NOT EXISTS settings (
+        key   TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+    );
+
+    -- Per-customer report template
+    ALTER TABLE customers ADD COLUMN IF NOT EXISTS report_template TEXT;
 END $$
 """
 
@@ -319,17 +347,9 @@ async def query_stream(request: QueryRequest) -> StreamingResponse:
 
 # --- Curated report generation ---
 
-_PLAIN_LANGUAGE_SYSTEM = (
-    "You write Microsoft 365 update summaries for business users who are not technical. "
-    "Use plain, friendly language. Explain what each change means in practice — what users "
-    "will see or be able to do differently. Avoid jargon. "
-    "Write a one-sentence intro, then one short paragraph per change. "
-    "Do not use bullet points or section headers."
-)
-
 
 async def _generate_curated_report(
-    customer: Customer, items: list[RoadmapItem], api_key: str
+    customer: Customer, items: list[RoadmapItem], api_key: str, template: str
 ) -> str:
     """Call the LLM to write a plain-language summary of the selected roadmap items."""
     client = AsyncOpenAI(api_key=api_key)
@@ -341,7 +361,7 @@ async def _generate_curated_report(
     response = await client.chat.completions.create(
         model="gpt-4o",
         messages=[
-            {"role": "system", "content": _PLAIN_LANGUAGE_SYSTEM},
+            {"role": "system", "content": template},
             {
                 "role": "user",
                 "content": (
@@ -354,6 +374,23 @@ async def _generate_curated_report(
         ],
     )
     return response.choices[0].message.content or ""
+
+
+# --- Settings endpoints ---
+
+
+@app.get("/settings/report-template")
+async def get_report_template() -> dict:
+    pool = await get_pool(DATABASE_URL)
+    value = await get_setting(pool, "default_report_template")
+    return {"template": value or _DEFAULT_REPORT_TEMPLATE}
+
+
+@app.put("/settings/report-template")
+async def update_report_template(body: TemplateRequest) -> dict:
+    pool = await get_pool(DATABASE_URL)
+    value = await upsert_setting(pool, "default_report_template", body.template)
+    return {"template": value}
 
 
 # --- Roadmap REST endpoints ---
@@ -527,7 +564,12 @@ async def customers_generate_report(name: str, body: GenerateReportRequest) -> R
     items = await get_roadmap_items_by_ids(pool, body.item_ids)
     if not items:
         raise HTTPException(status_code=422, detail="None of the provided item IDs exist")
-    content = await _generate_curated_report(customer, items, OPENAI_API_KEY)
+    template = (
+        customer.report_template
+        or await get_setting(pool, "default_report_template")
+        or _DEFAULT_REPORT_TEMPLATE
+    )
+    content = await _generate_curated_report(customer, items, OPENAI_API_KEY, template)
     title = f"Evergreen Report – {name} – {datetime.now().strftime('%Y-%m-%d')}"
     return ReportPreview(title=title, content=content)
 

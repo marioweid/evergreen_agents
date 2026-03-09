@@ -13,6 +13,7 @@ class Customer(BaseModel):
     products_used: list[str]
     priority: Literal["low", "medium", "high"] = "medium"
     notes: str | None = None
+    report_template: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
@@ -31,6 +32,7 @@ class CustomerUpdate(BaseModel):
     products_used: list[str] | None = None
     priority: Literal["low", "medium", "high"] | None = None
     notes: str | None = None
+    report_template: str | None = None
 
 
 class CustomerDocument(BaseModel):

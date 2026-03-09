@@ -1,14 +1,20 @@
 CREATE EXTENSION IF NOT EXISTS vector;
 
+CREATE TABLE IF NOT EXISTS settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS customers (
-    id             SERIAL PRIMARY KEY,
-    name           TEXT NOT NULL UNIQUE,
-    description    TEXT NOT NULL,
-    products_used  JSONB NOT NULL DEFAULT '[]',
-    priority       TEXT NOT NULL DEFAULT 'medium',
-    notes          TEXT,
-    created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    id              SERIAL PRIMARY KEY,
+    name            TEXT NOT NULL UNIQUE,
+    description     TEXT NOT NULL,
+    products_used   JSONB NOT NULL DEFAULT '[]',
+    priority        TEXT NOT NULL DEFAULT 'medium',
+    notes           TEXT,
+    report_template TEXT,
+    created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS roadmap_items (

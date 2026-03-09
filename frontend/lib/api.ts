@@ -161,6 +161,17 @@ export const getRoadmapFilters = () => request<RoadmapFilters>("/roadmap/filters
 
 export const getRoadmapItem = (id: number) => request<RoadmapItem>(`/roadmap/${id}`)
 
+// --- Settings ---
+
+export const getDefaultReportTemplate = () =>
+  request<{ template: string }>("/settings/report-template")
+
+export const updateDefaultReportTemplate = (template: string) =>
+  request<{ template: string }>("/settings/report-template", {
+    method: "PUT",
+    body: JSON.stringify({ template }),
+  })
+
 // --- Streaming chat ---
 
 export interface ChatMessage {

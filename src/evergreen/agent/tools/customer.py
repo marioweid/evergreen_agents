@@ -47,7 +47,8 @@ async def update_customer(pool: asyncpg.Pool, name: str, data: CustomerUpdate) -
         """
         UPDATE customers
         SET name = $2, description = $3, products_used = $4::jsonb,
-            priority = $5, notes = $6, updated_at = CURRENT_TIMESTAMP
+            priority = $5, notes = $6, report_template = $7,
+            updated_at = CURRENT_TIMESTAMP
         WHERE LOWER(name) = LOWER($1)
         RETURNING *
         """,
@@ -57,6 +58,7 @@ async def update_customer(pool: asyncpg.Pool, name: str, data: CustomerUpdate) -
         json.dumps(updated.products_used),
         updated.priority,
         updated.notes,
+        updated.report_template,
     )
     return _row_to_customer(row) if row else None
 
@@ -75,6 +77,7 @@ def _row_to_customer(row: asyncpg.Record) -> Customer:
         products_used=json.loads(row["products_used"] or "[]"),
         priority=row["priority"],
         notes=row["notes"],
+        report_template=row["report_template"],
         created_at=row["created_at"],
         updated_at=row["updated_at"],
     )

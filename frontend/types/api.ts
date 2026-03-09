@@ -5,6 +5,7 @@ export interface Customer {
   products_used: string[]
   priority: "low" | "medium" | "high"
   notes: string | null
+  report_template: string | null
   created_at: string | null
   updated_at: string | null
 }
@@ -23,6 +24,7 @@ export interface CustomerUpdate {
   products_used?: string[] | null
   priority?: "low" | "medium" | "high" | null
   notes?: string | null
+  report_template?: string | null
 }
 
 export interface CustomerDocument {
