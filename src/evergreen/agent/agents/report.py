@@ -27,7 +27,8 @@ class ReportDeps:
 
 
 _SYSTEM_PROMPT = """
-You generate Microsoft 365 update reports for Customer Success Managers preparing for customer meetings.
+You generate Microsoft 365 update reports for Customer Success Managers
+preparing for customer meetings.
 
 ## Your goal: completeness first, not a short summary
 

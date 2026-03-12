@@ -203,7 +203,8 @@ DO $$ BEGIN
     ALTER TABLE customers ADD COLUMN IF NOT EXISTS status TEXT;
 
     -- Document type and meeting date
-    ALTER TABLE customer_documents ADD COLUMN IF NOT EXISTS doc_type TEXT NOT NULL DEFAULT 'general';
+    ALTER TABLE customer_documents
+        ADD COLUMN IF NOT EXISTS doc_type TEXT NOT NULL DEFAULT 'general';
     ALTER TABLE customer_documents ADD COLUMN IF NOT EXISTS doc_date DATE;
 
     -- Roadmap change log
