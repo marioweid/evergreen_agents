@@ -186,7 +186,7 @@ export default function SettingsPage() {
         <p className="text-sm text-muted-foreground">Global configuration for Evergreen.</p>
       </div>
 
-      <div className="flex-1 overflow-auto px-6 py-6 max-w-2xl flex flex-col gap-8">
+      <div className="flex-1 overflow-auto px-6 py-6 flex flex-col gap-8">
         <PipelineSection />
 
         <SettingSection

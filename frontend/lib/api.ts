@@ -195,13 +195,15 @@ export interface ChatMessage {
   content: string
 }
 
+export type StreamResult = { history: ChatMessage[]; reportSaved: boolean }
+
 export async function streamQuery(
   query: string,
   history: ChatMessage[],
   onDelta: (delta: string) => void,
   signal?: AbortSignal,
   customerName?: string,
-): Promise<ChatMessage[]> {
+): Promise<StreamResult> {
   const res = await fetch(`${BASE}/query/stream`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -214,6 +216,7 @@ export async function streamQuery(
   const decoder = new TextDecoder()
   let buffer = ""
   let updatedHistory: ChatMessage[] = history
+  let reportSaved = false
 
   while (true) {
     const { done, value } = await reader.read()
@@ -224,15 +227,16 @@ export async function streamQuery(
     for (const line of lines) {
       if (!line.startsWith("data: ")) continue
       const data = line.slice(6).trim()
-      if (data === "[DONE]") return updatedHistory
+      if (data === "[DONE]") return { history: updatedHistory, reportSaved }
       try {
-        const parsed = JSON.parse(data) as { delta?: string; history?: ChatMessage[] }
+        const parsed = JSON.parse(data) as { delta?: string; history?: ChatMessage[]; report_saved?: boolean }
         if (parsed.delta !== undefined) onDelta(parsed.delta)
         if (parsed.history !== undefined) updatedHistory = parsed.history
+        if (parsed.report_saved === true) reportSaved = true
       } catch {
         // skip malformed chunks
       }
     }
   }
-  return updatedHistory
+  return { history: updatedHistory, reportSaved }
 }

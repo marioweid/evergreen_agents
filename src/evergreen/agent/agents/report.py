@@ -1,4 +1,4 @@
-"""Report generation sub-agent — weekly per-customer impact reports."""
+"""Report generation sub-agent — per-customer impact reports structured for customer meetings."""
 
 from datetime import datetime
 
@@ -6,8 +6,16 @@ import asyncpg
 from pydantic_ai import Agent, RunContext
 
 from evergreen.agent.tools.customer import get_customer, list_customers
-from evergreen.agent.tools.roadmap import list_recent_roadmap_items, search_roadmap
-from evergreen.pipeline.database import insert_report, search_customer_documents
+from evergreen.agent.tools.roadmap import (
+    get_roadmap_items_by_ids,
+    list_recent_roadmap_items,
+    search_roadmap,
+)
+from evergreen.pipeline.database import (
+    insert_report,
+    list_roadmap_changes_in_period,
+    search_customer_documents,
+)
 from evergreen.pipeline.embedder import embed_query
 from evergreen.shared.models import Customer
 
@@ -18,36 +26,144 @@ class ReportDeps:
         self.openai_api_key = openai_api_key
 
 
+_SYSTEM_PROMPT = """
+You generate Microsoft 365 update reports for Customer Success Managers preparing for customer meetings.
+
+## Your goal: completeness first, not a short summary
+
+The CSM typically has two 1-hour meetings with the customer. Your report must cover everything
+worth discussing across both sessions. It is always better to include a change than to miss it.
+If you are unsure whether something is relevant, include it with a brief note explaining why it
+might matter.
+
+## When a date range or period is specified
+
+ALWAYS call get_all_changes_in_period first. This returns every single change recorded in that
+period with no cutoff. You must evaluate EVERY item returned against the customer profile.
+Do not skip items because they seem minor or unfamiliar — let the CSM decide.
+
+Also call get_relevant_changes_for_report with the customer's products to catch items that may
+not have been tracked as explicit changes but are relevant to their setup.
+
+## Evaluating relevance
+
+Fetch the customer profile first with fetch_customer_for_report.
+Also call get_customer_context to understand their history and pain points.
+
+For each change, ask: could this affect this customer's users, admins, or rollout plans?
+If yes, include it. When in doubt, include it.
+
+Exclude only items that are completely unrelated to any product the customer uses or is
+considering — and even then, if they are marked high-priority or GA, mention them briefly.
+
+## Report structure (two-meeting format)
+
+Structure the report so the CSM can run two sessions:
+
+### Meeting 1 — Strategic overview (~60 min)
+Focus on bigger items: new features rolling out to GA, significant changes to products they rely
+on, anything that changes how their users work day-to-day. Include enough detail for a demo or
+a meaningful discussion.
+
+### Meeting 2 — Operational details (~60 min)
+Focus on timelines, admin changes, things IT needs to act on, items coming in the next 30–60
+days, and follow-up actions from the previous meeting.
+
+## Formatting each change
+
+For every included item write:
+- What it is (one plain sentence, no jargon)
+- What it means for this customer specifically (how their users or IT will notice it)
+- Status and expected timeline
+- A suggested talking point or question for the meeting
+
+## Tone
+
+Write for a business reader, not a technical one. Avoid acronyms without explanation.
+Use concrete examples ("users will see a new button in Teams that...").
+
+## After writing the report
+
+Call save_report to persist it as a draft.
+""".strip()
+
+
 report_agent: Agent[ReportDeps, str] = Agent(
     "openai:gpt-4o",
     deps_type=ReportDeps,
-    system_prompt=(
-        "You write Microsoft 365 update summaries for business users who are not technical. "
-        "Your audience is typically someone rolling out Teams, SharePoint, or other M365 products "
-        "in their company — they understand their business, not the technology. "
-        "Write in plain, friendly language. Explain what each change means in practice — what "
-        "users will see or be able to do differently. Avoid jargon and acronyms. "
-        "Use concrete examples where helpful (e.g. 'Your staff will now see a new button in Teams "
-        "that lets them share files directly from their desktop'). "
-        "Always call get_customer_context first to understand the customer's background before "
-        "deciding which changes are relevant. Exclude anything with no plausible relevance. "
-        "After composing the report, call save_report to persist it."
-    ),
+    system_prompt=_SYSTEM_PROMPT,
 )
 
 
 @report_agent.tool
 async def fetch_customer_for_report(ctx: RunContext[ReportDeps], customer_name: str) -> dict | None:
-    """Get customer profile for report generation."""
+    """Get customer profile — call this first before anything else."""
     customer = await get_customer(ctx.deps.pool, customer_name)
     return customer.model_dump() if customer else None
 
 
 @report_agent.tool
-async def get_relevant_changes_for_report(
-    ctx: RunContext[ReportDeps], products_query: str, limit: int = 15
+async def get_all_changes_in_period(
+    ctx: RunContext[ReportDeps],
+    date_from: str,
+    date_to: str | None = None,
 ) -> list[dict]:
-    """Get recent roadmap changes relevant to the customer's products."""
+    """Get EVERY roadmap change recorded in a specific period — no similarity cutoff, no limit.
+
+    Use this whenever the user specifies a date range (e.g. "last 2 weeks", "March", "Q1").
+    Returns all changes with full item details so nothing is missed.
+
+    Args:
+        date_from: Start of the period as ISO date string, e.g. "2026-03-01".
+        date_to: End of the period, e.g. "2026-03-31". Omit for open-ended (up to now).
+    """
+    changes = await list_roadmap_changes_in_period(ctx.deps.pool, date_from, date_to)
+
+    # Group changes by item so each item appears once with all its changes listed
+    seen: dict[int, dict] = {}
+    for c in changes:
+        if c.item_id not in seen:
+            seen[c.item_id] = {"item_id": c.item_id, "item_title": c.item_title, "changes": []}
+        seen[c.item_id]["changes"].append(
+            {
+                "change_type": c.change_type,
+                "old_value": c.old_value,
+                "new_value": c.new_value,
+                "detected_at": c.sync_id,
+            }
+        )
+
+    if not seen:
+        return []
+
+    items = await get_roadmap_items_by_ids(ctx.deps.pool, list(seen.keys()))
+    result = []
+    for item in items:
+        entry = seen.get(item.id, {})
+        result.append(
+            {
+                "id": item.id,
+                "title": item.title,
+                "description": item.description,
+                "status": item.status,
+                "products": item.products,
+                "release_phase": item.release_phase,
+                "release_date": item.release_date,
+                "changes_in_period": entry.get("changes", []),
+            }
+        )
+    return result
+
+
+@report_agent.tool
+async def get_relevant_changes_for_report(
+    ctx: RunContext[ReportDeps], products_query: str, limit: int = 60
+) -> list[dict]:
+    """Semantic search for roadmap items relevant to the customer's products.
+
+    Use this in addition to get_all_changes_in_period to catch items the customer cares about
+    that may not have explicit change records. Default limit is 60 — raise it if needed.
+    """
     embedding = await embed_query(products_query, ctx.deps.openai_api_key)
     results = await search_roadmap(ctx.deps.pool, embedding, limit=limit)
     return [
@@ -59,14 +175,15 @@ async def get_relevant_changes_for_report(
             "products": r.item.products,
             "release_phase": r.item.release_phase,
             "release_date": r.item.release_date,
+            "similarity": round(r.similarity, 3),
         }
         for r in results
     ]
 
 
 @report_agent.tool
-async def get_latest_roadmap_additions(ctx: RunContext[ReportDeps], limit: int = 20) -> list[dict]:
-    """Get the most recently added or updated roadmap items."""
+async def get_latest_roadmap_additions(ctx: RunContext[ReportDeps], limit: int = 50) -> list[dict]:
+    """Get the most recently added or updated roadmap items (up to limit, default 50)."""
     items = await list_recent_roadmap_items(ctx.deps.pool, limit=limit)
     return [
         {
@@ -92,20 +209,17 @@ async def list_customers_for_bulk_report(ctx: RunContext[ReportDeps]) -> list[di
 async def get_customer_context(
     ctx: RunContext[ReportDeps], customer_name: str, topic: str
 ) -> list[dict]:
-    """Search meeting notes and other customer documents for relevant context.
-
-    Use this to understand the customer's pain points, goals, and history before
-    deciding which roadmap changes are worth including in the report.
+    """Search meeting notes and documents to understand the customer's history and priorities.
 
     Args:
         customer_name: Name of the customer.
-        topic: What to search for, e.g. "Teams adoption challenges" or "SharePoint migration".
+        topic: What to search for, e.g. "Teams adoption" or "SharePoint migration".
     """
     customer = await get_customer(ctx.deps.pool, customer_name)
     if customer is None or customer.id is None:
         return []
     embedding = await embed_query(topic, ctx.deps.openai_api_key)
-    results = await search_customer_documents(ctx.deps.pool, customer.id, embedding, limit=5)
+    results = await search_customer_documents(ctx.deps.pool, customer.id, embedding, limit=8)
     return results
 
 
@@ -123,11 +237,8 @@ async def save_report(
 
     Args:
         customer_name: Name of the customer.
-        title: Document title, e.g. "Evergreen Report – Contoso – 2026-03-07".
+        title: Document title, e.g. "Evergreen Report – Contoso – March 2026".
         content: Full report text.
-
-    Returns:
-        Summary of what was saved.
     """
     customer = await get_customer(ctx.deps.pool, customer_name)
     if customer is None or customer.id is None:

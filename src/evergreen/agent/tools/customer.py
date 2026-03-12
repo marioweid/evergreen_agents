@@ -4,7 +4,7 @@ import json
 
 import asyncpg
 
-from evergreen.shared.models import Customer, CustomerContact, CustomerCreate, CustomerUpdate
+from evergreen.shared.models import Customer, CustomerCreate, CustomerUpdate
 
 
 async def list_customers(pool: asyncpg.Pool) -> list[Customer]:
@@ -23,17 +23,15 @@ async def create_customer(pool: asyncpg.Pool, data: CustomerCreate) -> Customer:
     """Insert a new customer and return the created record."""
     row = await pool.fetchrow(
         """
-        INSERT INTO customers (name, description, products_used, priority, status, notes, contacts)
-        VALUES ($1, $2, $3::jsonb, $4, $5, $6, $7::jsonb)
+        INSERT INTO customers (name, description, products_used, priority, notes)
+        VALUES ($1, $2, $3::jsonb, $4, $5)
         RETURNING *
         """,
         data.name,
         data.description,
         json.dumps(data.products_used),
         data.priority,
-        data.status,
         data.notes,
-        json.dumps([c.model_dump() for c in data.contacts]),
     )
     return _row_to_customer(row)
 
@@ -49,8 +47,8 @@ async def update_customer(pool: asyncpg.Pool, name: str, data: CustomerUpdate) -
         """
         UPDATE customers
         SET name = $2, description = $3, products_used = $4::jsonb,
-            priority = $5, status = $6, notes = $7, report_template = $8,
-            contacts = $9::jsonb, updated_at = CURRENT_TIMESTAMP
+            priority = $5, notes = $6, report_template = $7,
+            updated_at = CURRENT_TIMESTAMP
         WHERE LOWER(name) = LOWER($1)
         RETURNING *
         """,
@@ -59,10 +57,8 @@ async def update_customer(pool: asyncpg.Pool, name: str, data: CustomerUpdate) -
         updated.description,
         json.dumps(updated.products_used),
         updated.priority,
-        updated.status,
         updated.notes,
         updated.report_template,
-        json.dumps([c.model_dump() for c in (updated.contacts or [])]),
     )
     return _row_to_customer(row) if row else None
 
@@ -74,18 +70,14 @@ async def delete_customer(pool: asyncpg.Pool, name: str) -> bool:
 
 
 def _row_to_customer(row: asyncpg.Record) -> Customer:
-    raw_contacts = json.loads(row["contacts"] if row["contacts"] else "[]")
-    raw_status = row["status"]
     return Customer(
         id=row["id"],
         name=row["name"],
         description=row["description"],
         products_used=json.loads(row["products_used"] or "[]"),
         priority=row["priority"],
-        status=raw_status,
         notes=row["notes"],
         report_template=row["report_template"],
-        contacts=[CustomerContact(**c) for c in raw_contacts],
         created_at=row["created_at"],
         updated_at=row["updated_at"],
     )

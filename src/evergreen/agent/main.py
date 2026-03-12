@@ -196,11 +196,15 @@ DO $$ BEGIN
     -- Per-customer report template
     ALTER TABLE customers ADD COLUMN IF NOT EXISTS report_template TEXT;
 
-    -- Customer contacts (name, email, optional role)
+    -- Customer contacts (name, email, optional role) — kept for backwards compat, no longer used
     ALTER TABLE customers ADD COLUMN IF NOT EXISTS contacts JSONB NOT NULL DEFAULT '[]'::jsonb;
 
-    -- Customer health status
+    -- Customer health status — kept for backwards compat, no longer used
     ALTER TABLE customers ADD COLUMN IF NOT EXISTS status TEXT;
+
+    -- Document type and meeting date
+    ALTER TABLE customer_documents ADD COLUMN IF NOT EXISTS doc_type TEXT NOT NULL DEFAULT 'general';
+    ALTER TABLE customer_documents ADD COLUMN IF NOT EXISTS doc_date DATE;
 
     -- Roadmap change log
     CREATE TABLE IF NOT EXISTS roadmap_changes (
@@ -370,7 +374,7 @@ async def _sse_stream(
         {"role": "user", "content": query},
         {"role": "assistant", "content": full_response},
     ]
-    yield f"data: {json.dumps({'history': updated_history})}\n\n"
+    yield f"data: {json.dumps({'history': updated_history, 'report_saved': deps.report_saved})}\n\n"
     yield "data: [DONE]\n\n"
 
 
@@ -571,7 +575,15 @@ async def customers_documents_create(name: str, body: CustomerDocumentCreate) ->
         raise HTTPException(status_code=404, detail=f"Customer '{name}' not found")
     text = f"Title: {body.title}\n\n{body.content}"
     embedding = await embed_query(text, OPENAI_API_KEY)
-    return await insert_customer_document(pool, customer.id, body.title, body.content, embedding)
+    return await insert_customer_document(
+        pool,
+        customer.id,
+        body.title,
+        body.content,
+        embedding,
+        doc_type=body.doc_type,
+        doc_date=body.doc_date,
+    )
 
 
 @app.patch(
@@ -591,7 +603,14 @@ async def customers_documents_update(
         text = f"Title: {title_for_embed}\n\n{body.content}"
         embedding = await embed_query(text, OPENAI_API_KEY)
     doc = await update_customer_document(
-        pool, doc_id, customer.id, body.title, body.content, embedding
+        pool,
+        doc_id,
+        customer.id,
+        body.title,
+        body.content,
+        embedding,
+        doc_type=body.doc_type,
+        doc_date=body.doc_date,
     )
     if doc is None:
         raise HTTPException(status_code=404, detail=f"Document {doc_id} not found")

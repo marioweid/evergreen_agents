@@ -1,18 +1,9 @@
 """Shared Pydantic models for database entities."""
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Literal
 
 from pydantic import BaseModel, Field
-
-
-class CustomerContact(BaseModel):
-    name: str
-    email: str
-    role: str | None = None
-
-
-CustomerStatus = Literal["active", "at_risk", "churning", "churned"]
 
 
 class Customer(BaseModel):
@@ -21,10 +12,8 @@ class Customer(BaseModel):
     description: str
     products_used: list[str]
     priority: Literal["low", "medium", "high"] = "medium"
-    status: CustomerStatus | None = None
     notes: str | None = None
     report_template: str | None = None
-    contacts: list[CustomerContact] = Field(default_factory=list)
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
@@ -34,9 +23,7 @@ class CustomerCreate(BaseModel):
     description: str
     products_used: list[str]
     priority: Literal["low", "medium", "high"] = "medium"
-    status: CustomerStatus | None = None
     notes: str | None = None
-    contacts: list[CustomerContact] = Field(default_factory=list)
 
 
 class CustomerUpdate(BaseModel):
@@ -44,10 +31,11 @@ class CustomerUpdate(BaseModel):
     description: str | None = None
     products_used: list[str] | None = None
     priority: Literal["low", "medium", "high"] | None = None
-    status: CustomerStatus | None = None
     notes: str | None = None
     report_template: str | None = None
-    contacts: list[CustomerContact] | None = None
+
+
+DocumentType = Literal["meeting_notes", "action_items", "general"]
 
 
 class CustomerDocument(BaseModel):
@@ -55,6 +43,8 @@ class CustomerDocument(BaseModel):
     customer_id: int
     title: str
     content: str
+    doc_type: DocumentType = "general"
+    doc_date: date | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
@@ -62,11 +52,15 @@ class CustomerDocument(BaseModel):
 class CustomerDocumentCreate(BaseModel):
     title: str
     content: str
+    doc_type: DocumentType = "general"
+    doc_date: date | None = None
 
 
 class CustomerDocumentUpdate(BaseModel):
     title: str | None = None
     content: str | None = None
+    doc_type: DocumentType | None = None
+    doc_date: date | None = None
 
 
 class RoadmapItem(BaseModel):

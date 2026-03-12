@@ -13,6 +13,7 @@ class OrchestratorDeps:
     def __init__(self, pool: asyncpg.Pool, openai_api_key: str) -> None:
         self.pool = pool
         self.openai_api_key = openai_api_key
+        self.report_saved = False  # Set to True by generate_report when a draft is saved
 
 
 orchestrator: Agent[OrchestratorDeps, str] = Agent(
@@ -61,4 +62,6 @@ async def generate_report(ctx: RunContext[OrchestratorDeps], instruction: str) -
     """Delegate report generation to the report agent."""
     deps = ReportDeps(pool=ctx.deps.pool, openai_api_key=ctx.deps.openai_api_key)
     result = await report_agent.run(instruction, deps=deps)
+    if "saved as draft" in result.output.lower():
+        ctx.deps.report_saved = True
     return result.output

@@ -29,8 +29,7 @@ import {
   streamQuery,
   type ChatMessage,
 } from "@/lib/api"
-import type { Customer, CustomerContact, CustomerDocument, CustomerStatus, ReportPreview } from "@/types/api"
-import { STATUS_STYLE } from "@/app/customers/page"
+import type { Customer, CustomerDocument, DocumentType, ReportPreview } from "@/types/api"
 
 function MarkdownContent({ content }: { content: string }) {
   return (
@@ -80,28 +79,11 @@ function CustomerEditForm({
   const [name, setName] = useState(customer.name)
   const [description, setDescription] = useState(customer.description)
   const [priority, setPriority] = useState(customer.priority)
-  const [status, setStatus] = useState<CustomerStatus | "">(customer.status ?? "")
   const [notes, setNotes] = useState(customer.notes ?? "")
   const [reportTemplate, setReportTemplate] = useState(customer.report_template ?? "")
   const [products, setProducts] = useState<string[]>(customer.products_used)
   const [productInput, setProductInput] = useState("")
   const productInputRef = useRef<HTMLInputElement>(null)
-  const [contacts, setContacts] = useState<CustomerContact[]>(customer.contacts ?? [])
-
-  function addContact() {
-    setContacts((prev) => [...prev, { name: "", email: "", role: null }])
-  }
-
-  function updateContact(i: number, field: keyof CustomerContact, value: string) {
-    setContacts((prev) => prev.map((c, idx) =>
-      idx === i ? { ...c, [field]: value || (field === "role" ? null : value) } : c
-    ))
-  }
-
-  function removeContact(i: number) {
-    setContacts((prev) => prev.filter((_, idx) => idx !== i))
-  }
-
   function addProduct(value: string) {
     const trimmed = value.trim().replace(/,$/, "")
     if (trimmed && !products.includes(trimmed)) {
@@ -128,11 +110,9 @@ function CustomerEditForm({
       name: name.trim(),
       description: description.trim(),
       priority,
-      status: status || null,
       notes: notes.trim() || null,
       report_template: reportTemplate.trim() || null,
       products_used: productInput.trim() ? [...products, productInput.trim()] : products,
-      contacts: contacts.filter((c) => c.name.trim() && c.email.trim()),
     })
   }
 
@@ -163,22 +143,6 @@ function CustomerEditForm({
                 {p}
               </option>
             ))}
-          </select>
-        </div>
-        <div className="flex flex-col gap-1">
-          <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-            Status
-          </label>
-          <select
-            className="h-[42px] rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-            value={status}
-            onChange={(e) => setStatus(e.target.value as CustomerStatus | "")}
-          >
-            <option value="">None</option>
-            <option value="active">Active</option>
-            <option value="at_risk">At risk</option>
-            <option value="churning">Churning</option>
-            <option value="churned">Churned</option>
           </select>
         </div>
       </div>
@@ -239,59 +203,10 @@ function CustomerEditForm({
         <textarea
           className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm leading-relaxed resize-none focus:outline-none focus:ring-2 focus:ring-ring"
           rows={2}
-          placeholder="Internal notes, key contacts, renewal dates…"
+          placeholder="Internal notes, renewal dates…"
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
         />
-      </div>
-
-      <div className="flex flex-col gap-2">
-        <div className="flex items-center justify-between">
-          <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-            Contacts
-          </label>
-          <button
-            type="button"
-            onClick={addContact}
-            className="text-xs text-primary hover:underline"
-          >
-            + Add contact
-          </button>
-        </div>
-        {contacts.length === 0 && (
-          <p className="text-xs text-muted-foreground">No contacts yet.</p>
-        )}
-        {contacts.map((c, i) => (
-          <div key={i} className="grid grid-cols-[1fr_1fr_auto] gap-2 items-start">
-            <input
-              className="rounded-md border border-input bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-              placeholder="Name"
-              value={c.name}
-              onChange={(e) => updateContact(i, "name", e.target.value)}
-            />
-            <input
-              className="rounded-md border border-input bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-              placeholder="Email"
-              type="email"
-              value={c.email}
-              onChange={(e) => updateContact(i, "email", e.target.value)}
-            />
-            <button
-              type="button"
-              onClick={() => removeContact(i)}
-              className="mt-1.5 text-muted-foreground hover:text-destructive"
-              aria-label="Remove contact"
-            >
-              <X size={14} />
-            </button>
-            <input
-              className="col-span-2 rounded-md border border-input bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-              placeholder="Role (optional, e.g. IT Manager)"
-              value={c.role ?? ""}
-              onChange={(e) => updateContact(i, "role", e.target.value)}
-            />
-          </div>
-        ))}
       </div>
 
       <div className="flex flex-col gap-1">
@@ -329,6 +244,7 @@ function ImpactTab({
   name,
   dateFrom,
   dateTo,
+  lastMeetingDate,
   onDateFromChange,
   onDateToChange,
   onReportGenerated,
@@ -336,6 +252,7 @@ function ImpactTab({
   name: string
   dateFrom: string
   dateTo: string
+  lastMeetingDate: string | null
   onDateFromChange: (v: string) => void
   onDateToChange: (v: string) => void
   onReportGenerated: () => void
@@ -456,6 +373,14 @@ function ImpactTab({
             </div>
           )}
         </div>
+        {lastMeetingDate && (
+          <button
+            className="text-xs text-primary hover:underline underline-offset-2 whitespace-nowrap"
+            onClick={() => { onDateFromChange(lastMeetingDate); onDateToChange("") }}
+          >
+            Since last meeting ({new Date(lastMeetingDate).toLocaleDateString()})
+          </button>
+        )}
         <div className="flex items-center gap-1">
           <input
             type="date"
@@ -751,9 +676,23 @@ function ReportsTab({ name }: { name: string }) {
 
 // --- Documents Tab ---
 
+const DOC_TYPE_LABELS: Record<DocumentType, string> = {
+  meeting_notes: "Meeting notes",
+  action_items:  "Action items",
+  general:       "General",
+}
+
+const DOC_TYPE_BADGE: Record<DocumentType, string> = {
+  meeting_notes: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200",
+  action_items:  "bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200",
+  general:       "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400",
+}
+
 interface DocFormState {
   title: string
   content: string
+  doc_type: DocumentType
+  doc_date: string
 }
 
 function DocumentForm({
@@ -769,12 +708,31 @@ function DocumentForm({
 }) {
   const [title, setTitle] = useState(initial.title)
   const [content, setContent] = useState(initial.content)
+  const [docType, setDocType] = useState<DocumentType>(initial.doc_type)
+  const [docDate, setDocDate] = useState(initial.doc_date)
 
   return (
     <div className="rounded-lg border p-4 flex flex-col gap-3">
+      <div className="flex gap-2">
+        <select
+          className="h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+          value={docType}
+          onChange={(e) => setDocType(e.target.value as DocumentType)}
+        >
+          {(Object.keys(DOC_TYPE_LABELS) as DocumentType[]).map((t) => (
+            <option key={t} value={t}>{DOC_TYPE_LABELS[t]}</option>
+          ))}
+        </select>
+        <input
+          type="date"
+          className="h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+          value={docDate}
+          onChange={(e) => setDocDate(e.target.value)}
+        />
+      </div>
       <input
         className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-        placeholder="Title (e.g. Battle Card, Meeting Notes)"
+        placeholder="Title (e.g. Q2 Review, Battle Card)"
         value={title}
         onChange={(e) => setTitle(e.target.value)}
       />
@@ -791,7 +749,7 @@ function DocumentForm({
         </Button>
         <Button
           size="sm"
-          onClick={() => onSave({ title, content })}
+          onClick={() => onSave({ title, content, doc_type: docType, doc_date: docDate })}
           disabled={saving || !title.trim() || !content.trim()}
         >
           {saving ? <Loader2 size={14} className="mr-2 animate-spin" /> : null}
@@ -818,7 +776,12 @@ function DocumentsTab({ name }: { name: string }) {
     setSaving(true)
     setError(null)
     try {
-      await createCustomerDocument(name, { title: data.title, content: data.content })
+      await createCustomerDocument(name, {
+        title: data.title,
+        content: data.content,
+        doc_type: data.doc_type,
+        doc_date: data.doc_date || null,
+      })
       void qc.invalidateQueries({ queryKey: ["documents", name] })
       setCreating(false)
     } catch (err) {
@@ -832,7 +795,12 @@ function DocumentsTab({ name }: { name: string }) {
     setSaving(true)
     setError(null)
     try {
-      await updateCustomerDocument(name, doc.id, { title: data.title, content: data.content })
+      await updateCustomerDocument(name, doc.id, {
+        title: data.title,
+        content: data.content,
+        doc_type: data.doc_type,
+        doc_date: data.doc_date || null,
+      })
       void qc.invalidateQueries({ queryKey: ["documents", name] })
       setEditing(null)
     } catch (err) {
@@ -869,7 +837,7 @@ function DocumentsTab({ name }: { name: string }) {
 
       {creating && (
         <DocumentForm
-          initial={{ title: "", content: "" }}
+          initial={{ title: "", content: "", doc_type: "general", doc_date: new Date().toISOString().slice(0, 10) }}
           onSave={(d) => void handleCreate(d)}
           onCancel={() => { setCreating(false); setError(null) }}
           saving={saving}
@@ -894,7 +862,7 @@ function DocumentsTab({ name }: { name: string }) {
         <div key={doc.id} className="rounded-lg border">
           {editing?.id === doc.id ? (
             <DocumentForm
-              initial={{ title: doc.title, content: doc.content }}
+              initial={{ title: doc.title, content: doc.content, doc_type: doc.doc_type, doc_date: doc.doc_date ?? "" }}
               onSave={(d) => void handleUpdate(doc, d)}
               onCancel={() => { setEditing(null); setError(null) }}
               saving={saving}
@@ -902,13 +870,18 @@ function DocumentsTab({ name }: { name: string }) {
           ) : (
             <div className="flex items-start justify-between px-4 py-3 gap-3">
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium">{doc.title}</p>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <p className="text-sm font-medium">{doc.title}</p>
+                  <span className={`rounded px-1.5 py-0.5 text-xs font-medium ${DOC_TYPE_BADGE[doc.doc_type]}`}>
+                    {DOC_TYPE_LABELS[doc.doc_type]}
+                  </span>
+                  {doc.doc_date && (
+                    <span className="text-xs text-muted-foreground">
+                      {new Date(doc.doc_date).toLocaleDateString()}
+                    </span>
+                  )}
+                </div>
                 <p className="mt-1 text-xs text-muted-foreground line-clamp-2">{doc.content}</p>
-                {doc.updated_at && (
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Updated {new Date(doc.updated_at).toLocaleDateString()}
-                  </p>
-                )}
               </div>
               <div className="flex items-center gap-1 shrink-0">
                 <Button
@@ -939,11 +912,19 @@ function DocumentsTab({ name }: { name: string }) {
 
 // --- Chat Tab ---
 
-function CustomerChatTab({ customerName }: { customerName: string }) {
+function CustomerChatTab({
+  customerName,
+  onReportSaved,
+}: {
+  customerName: string
+  onReportSaved: () => void
+}) {
+  const qc = useQueryClient()
   const [history, setHistory] = useState<ChatMessage[]>([])
   const [input, setInput] = useState("")
   const [streaming, setStreaming] = useState(false)
   const [pendingChunks, setPendingChunks] = useState("")
+  const [reportBanner, setReportBanner] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
 
@@ -957,9 +938,10 @@ function CustomerChatTab({ customerName }: { customerName: string }) {
     setInput("")
     setStreaming(true)
     setPendingChunks("")
+    setReportBanner(false)
     abortRef.current = new AbortController()
     try {
-      const updated = await streamQuery(
+      const { history: updated, reportSaved } = await streamQuery(
         q,
         history,
         (delta) => setPendingChunks((prev) => prev + delta),
@@ -968,6 +950,11 @@ function CustomerChatTab({ customerName }: { customerName: string }) {
       )
       setHistory(updated)
       setPendingChunks("")
+      if (reportSaved) {
+        void qc.invalidateQueries({ queryKey: ["reports", customerName] })
+        setReportBanner(true)
+        onReportSaved()
+      }
     } catch (err) {
       if (err instanceof Error && err.name !== "AbortError") {
         setHistory((h) => [
@@ -991,10 +978,22 @@ function CustomerChatTab({ customerName }: { customerName: string }) {
 
   return (
     <div className="flex flex-col min-h-full">
+      {reportBanner && (
+        <div className="mb-3 flex items-center justify-between rounded-md border border-green-200 bg-green-50 dark:border-green-800 dark:bg-green-950 px-3 py-2 text-sm">
+          <span className="text-green-800 dark:text-green-200">Report saved as draft.</span>
+          <button
+            className="text-xs text-green-700 dark:text-green-300 underline hover:no-underline"
+            onClick={onReportSaved}
+          >
+            View in Reports →
+          </button>
+        </div>
+      )}
       <div className="flex-1 space-y-4 pb-4">
         {history.length === 0 && !streaming && (
           <p className="text-sm text-muted-foreground py-6 text-center">
-            Ask anything about {customerName} and their M365 roadmap.
+            Ask anything about {customerName} and their M365 roadmap.<br />
+            <span className="text-xs">Try: &ldquo;Generate a meeting note with the last 2 weeks of changes&rdquo;</span>
           </p>
         )}
         {history.map((msg, i) => (
@@ -1049,20 +1048,34 @@ function CustomerChatTab({ customerName }: { customerName: string }) {
 
 // --- Meeting Prep Tab ---
 
-const PREP_PROMPT = (name: string) =>
-  `Generate a concise pre-meeting briefing for my weekly M365 review meeting with ${name}. ` +
-  `Structure it as:\n` +
-  `## What's changed\n` +
-  `List the most relevant recent M365 roadmap changes for this customer (releases, rollouts, cancellations).\n\n` +
-  `## What to highlight\n` +
-  `2–3 items worth demoing or flagging in the meeting based on their products and priorities.\n\n` +
-  `## Questions & follow-ups\n` +
-  `Suggested questions to ask or things to follow up on based on their notes and documents.\n\n` +
-  `Keep it concise — this is a briefing for me, not a customer-facing report.`
+function buildPrepPrompt(name: string, lastMeetingDate: string | null): string {
+  const sinceClause = lastMeetingDate
+    ? `Focus on changes and updates since our last meeting on ${new Date(lastMeetingDate).toLocaleDateString()}. `
+    : ""
+  return (
+    `${sinceClause}Generate a concise pre-meeting briefing for my M365 review meeting with ${name}. ` +
+    `Structure it as:\n` +
+    `## What's changed\n` +
+    `List the most relevant recent M365 roadmap changes for this customer (releases, rollouts, cancellations).\n\n` +
+    `## What to highlight\n` +
+    `2–3 items worth demoing or flagging in the meeting based on their products and priorities.\n\n` +
+    `## Questions & follow-ups\n` +
+    `Suggested questions to ask or things to follow up on based on their notes and documents.\n\n` +
+    `Keep it concise — this is a briefing for me, not a customer-facing report.`
+  )
+}
 
-function MeetingPrepTab({ customerName }: { customerName: string }) {
+function MeetingPrepTab({
+  customerName,
+  lastMeetingDate,
+}: {
+  customerName: string
+  lastMeetingDate: string | null
+}) {
+  const qc = useQueryClient()
   const [briefing, setBriefing] = useState("")
   const [streaming, setStreaming] = useState(false)
+  const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const abortRef = useRef<AbortController | null>(null)
 
@@ -1073,7 +1086,7 @@ function MeetingPrepTab({ customerName }: { customerName: string }) {
     abortRef.current = new AbortController()
     try {
       await streamQuery(
-        PREP_PROMPT(customerName),
+        buildPrepPrompt(customerName, lastMeetingDate),
         [],
         (delta) => setBriefing((prev) => prev + delta),
         abortRef.current.signal,
@@ -1088,20 +1101,50 @@ function MeetingPrepTab({ customerName }: { customerName: string }) {
     }
   }
 
+  async function saveAsNotes() {
+    if (!briefing) return
+    setSaving(true)
+    setError(null)
+    try {
+      const today = new Date().toISOString().slice(0, 10)
+      await createCustomerDocument(customerName, {
+        title: `Meeting briefing – ${new Date().toLocaleDateString()}`,
+        content: briefing,
+        doc_type: "meeting_notes",
+        doc_date: today,
+      })
+      void qc.invalidateQueries({ queryKey: ["documents", customerName] })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save as meeting notes.")
+    } finally {
+      setSaving(false)
+    }
+  }
+
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
         <div>
           <p className="text-sm font-medium">Meeting briefing</p>
           <p className="text-xs text-muted-foreground mt-0.5">
-            A private AI-generated briefing to prepare for your weekly meeting. Not shared with the customer.
+            {lastMeetingDate
+              ? `Based on changes since ${new Date(lastMeetingDate).toLocaleDateString()}. Not shared with the customer.`
+              : "A private AI-generated briefing to prepare for your meeting. Not shared with the customer."}
           </p>
         </div>
-        <Button size="sm" onClick={() => void generate()} disabled={streaming}>
-          {streaming
-            ? <><Loader2 size={14} className="mr-2 animate-spin" /> Generating…</>
-            : briefing ? "Regenerate" : "Generate briefing"}
-        </Button>
+        <div className="flex items-center gap-2">
+          {briefing && !streaming && (
+            <Button variant="outline" size="sm" onClick={() => void saveAsNotes()} disabled={saving}>
+              {saving ? <Loader2 size={14} className="mr-1 animate-spin" /> : null}
+              Save as meeting notes
+            </Button>
+          )}
+          <Button size="sm" onClick={() => void generate()} disabled={streaming}>
+            {streaming
+              ? <><Loader2 size={14} className="mr-2 animate-spin" /> Generating…</>
+              : briefing ? "Regenerate" : "Generate briefing"}
+          </Button>
+        </div>
       </div>
 
       {error && <p className="text-xs text-destructive">{error}</p>}
@@ -1142,6 +1185,16 @@ export default function CustomerDetailPage({ params }: { params: Promise<{ name:
     queryFn: () => getCustomer(decodedName),
   })
 
+  const { data: documents } = useQuery({
+    queryKey: ["documents", decodedName],
+    queryFn: () => getCustomerDocuments(decodedName),
+  })
+
+  const lastMeetingDate = (documents ?? [])
+    .filter((d) => d.doc_type === "meeting_notes" && d.doc_date)
+    .sort((a, b) => b.doc_date!.localeCompare(a.doc_date!))
+    [0]?.doc_date ?? null
+
   const updateMutation = useMutation({
     mutationFn: (data: Partial<Customer>) =>
       updateCustomer(decodedName, {
@@ -1149,15 +1202,14 @@ export default function CustomerDetailPage({ params }: { params: Promise<{ name:
         description: data.description ?? undefined,
         products_used: data.products_used ?? undefined,
         priority: data.priority ?? undefined,
-        status: data.status ?? null,
         notes: data.notes ?? undefined,
         report_template: data.report_template ?? undefined,
-        contacts: data.contacts ?? undefined,
       }),
     onSuccess: (updated) => {
       setIsEditing(false)
       setSaveError(null)
       void qc.invalidateQueries({ queryKey: ["customers"] })
+      void qc.invalidateQueries({ queryKey: ["impact", decodedName] })
       // If name changed, redirect to the new URL
       if (updated.name !== decodedName) {
         router.replace(`/customers/${encodeURIComponent(updated.name)}`)
@@ -1226,14 +1278,6 @@ export default function CustomerDetailPage({ params }: { params: Promise<{ name:
                 <div className="flex items-center gap-2 flex-wrap">
                   <h1 className="text-lg font-semibold">{customer.name}</h1>
                   <Badge variant={PRIORITY_VARIANT[customer.priority]}>{customer.priority}</Badge>
-                  {customer.status && (() => {
-                    const s = STATUS_STYLE[customer.status]
-                    return s ? (
-                      <span className={`rounded px-1.5 py-0.5 text-xs font-medium ${s.className}`}>
-                        {s.label}
-                      </span>
-                    ) : null
-                  })()}
                 </div>
                 <p className="mt-1 text-sm text-muted-foreground">{customer.description}</p>
                 <div className="mt-2 flex flex-wrap gap-1">
@@ -1243,23 +1287,6 @@ export default function CustomerDetailPage({ params }: { params: Promise<{ name:
                 </div>
                 {customer.notes && (
                   <p className="mt-2 text-xs text-muted-foreground italic">{customer.notes}</p>
-                )}
-                {customer.contacts.length > 0 && (
-                  <div className="mt-2 flex flex-wrap gap-3">
-                    {customer.contacts.map((c, i) => (
-                      <div key={i} className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                        <span className="font-medium text-foreground">{c.name}</span>
-                        {c.role && <span className="text-muted-foreground">({c.role})</span>}
-                        <a
-                          href={`mailto:${c.email}`}
-                          className="text-primary hover:underline"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          {c.email}
-                        </a>
-                      </div>
-                    ))}
-                  </div>
                 )}
                 <div className="mt-3 flex items-center gap-2">
                   <Button
@@ -1307,6 +1334,7 @@ export default function CustomerDetailPage({ params }: { params: Promise<{ name:
             name={decodedName}
             dateFrom={dateFrom}
             dateTo={dateTo}
+            lastMeetingDate={lastMeetingDate}
             onDateFromChange={setDateFrom}
             onDateToChange={setDateTo}
             onReportGenerated={() => {
@@ -1317,8 +1345,13 @@ export default function CustomerDetailPage({ params }: { params: Promise<{ name:
         )}
         {tab === "reports" && <ReportsTab name={decodedName} />}
         {tab === "documents" && <DocumentsTab name={decodedName} />}
-        {tab === "chat" && <CustomerChatTab customerName={decodedName} />}
-        {tab === "prep" && <MeetingPrepTab customerName={decodedName} />}
+        {tab === "chat" && (
+          <CustomerChatTab
+            customerName={decodedName}
+            onReportSaved={() => setTab("reports")}
+          />
+        )}
+        {tab === "prep" && <MeetingPrepTab customerName={decodedName} lastMeetingDate={lastMeetingDate} />}
       </div>
     </div>
   )

@@ -1,21 +1,11 @@
-export interface CustomerContact {
-  name: string
-  email: string
-  role: string | null
-}
-
-export type CustomerStatus = "active" | "at_risk" | "churning" | "churned"
-
 export interface Customer {
   id: number | null
   name: string
   description: string
   products_used: string[]
   priority: "low" | "medium" | "high"
-  status: CustomerStatus | null
   notes: string | null
   report_template: string | null
-  contacts: CustomerContact[]
   created_at: string | null
   updated_at: string | null
 }
@@ -33,17 +23,19 @@ export interface CustomerUpdate {
   description?: string | null
   products_used?: string[] | null
   priority?: "low" | "medium" | "high" | null
-  status?: CustomerStatus | null
   notes?: string | null
   report_template?: string | null
-  contacts?: CustomerContact[] | null
 }
+
+export type DocumentType = "meeting_notes" | "action_items" | "general"
 
 export interface CustomerDocument {
   id: number
   customer_id: number
   title: string
   content: string
+  doc_type: DocumentType
+  doc_date: string | null
   created_at: string | null
   updated_at: string | null
 }
@@ -51,11 +43,15 @@ export interface CustomerDocument {
 export interface CustomerDocumentCreate {
   title: string
   content: string
+  doc_type?: DocumentType
+  doc_date?: string | null
 }
 
 export interface CustomerDocumentUpdate {
   title?: string | null
   content?: string | null
+  doc_type?: DocumentType | null
+  doc_date?: string | null
 }
 
 export interface RoadmapItem {

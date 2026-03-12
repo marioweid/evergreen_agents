@@ -2,6 +2,7 @@
 
 import json
 import logging
+from datetime import date
 
 import asyncpg
 
@@ -128,6 +129,42 @@ async def list_roadmap_changes(
     return [_row_to_change(r) for r in rows]
 
 
+async def list_roadmap_changes_in_period(
+    pool: asyncpg.Pool,
+    date_from: str,
+    date_to: str | None = None,
+) -> list[RoadmapChange]:
+    """Return every roadmap change recorded in a period. No limit — used for complete reports.
+
+    sync_id is stored as a full ISO timestamp string ("2026-03-11T14:30:00.123456"), so we
+    compare only the date portion (LEFT 10 chars) to avoid excluding changes on boundary days.
+    """
+    if date_to:
+        rows = await pool.fetch(
+            """
+            SELECT id, item_id, item_title, change_type, old_value, new_value,
+                   sync_id, detected_at
+            FROM roadmap_changes
+            WHERE LEFT(sync_id, 10) >= $1 AND LEFT(sync_id, 10) <= $2
+            ORDER BY detected_at ASC
+            """,
+            date_from[:10],
+            date_to[:10],
+        )
+    else:
+        rows = await pool.fetch(
+            """
+            SELECT id, item_id, item_title, change_type, old_value, new_value,
+                   sync_id, detected_at
+            FROM roadmap_changes
+            WHERE LEFT(sync_id, 10) >= $1
+            ORDER BY detected_at ASC
+            """,
+            date_from[:10],
+        )
+    return [_row_to_change(r) for r in rows]
+
+
 async def get_existing_documents(pool: asyncpg.Pool) -> dict[int, str]:
     """Return a mapping of item id → stored document text for all existing rows."""
     rows = await pool.fetch("SELECT id, document FROM roadmap_items")
@@ -198,19 +235,21 @@ def _row_to_document(row: asyncpg.Record) -> CustomerDocument:
         customer_id=row["customer_id"],
         title=row["title"],
         content=row["content"],
+        doc_type=row["doc_type"] or "general",
+        doc_date=row["doc_date"],
         created_at=row["created_at"],
         updated_at=row["updated_at"],
     )
 
 
 async def list_customer_documents(pool: asyncpg.Pool, customer_id: int) -> list[CustomerDocument]:
-    """Return all documents for a customer, newest first."""
+    """Return all documents for a customer, meeting dates first then newest updated."""
     rows = await pool.fetch(
         """
-        SELECT id, customer_id, title, content, created_at, updated_at
+        SELECT id, customer_id, title, content, doc_type, doc_date, created_at, updated_at
         FROM customer_documents
         WHERE customer_id = $1
-        ORDER BY updated_at DESC
+        ORDER BY doc_date DESC NULLS LAST, updated_at DESC
         """,
         customer_id,
     )
@@ -223,18 +262,22 @@ async def insert_customer_document(
     title: str,
     content: str,
     embedding: list[float],
+    doc_type: str = "general",
+    doc_date: date | None = None,
 ) -> CustomerDocument:
     """Insert a customer document with its embedding. Returns the stored record."""
     row = await pool.fetchrow(
         """
-        INSERT INTO customer_documents (customer_id, title, content, embedding)
-        VALUES ($1, $2, $3, $4::vector)
-        RETURNING id, customer_id, title, content, created_at, updated_at
+        INSERT INTO customer_documents (customer_id, title, content, embedding, doc_type, doc_date)
+        VALUES ($1, $2, $3, $4::vector, $5, $6)
+        RETURNING id, customer_id, title, content, doc_type, doc_date, created_at, updated_at
         """,
         customer_id,
         title,
         content,
         json.dumps(embedding),
+        doc_type,
+        doc_date,
     )
     return _row_to_document(row)
 
@@ -246,8 +289,10 @@ async def update_customer_document(
     title: str | None,
     content: str | None,
     embedding: list[float] | None,
+    doc_type: str | None = None,
+    doc_date: date | None = None,
 ) -> CustomerDocument | None:
-    """Update title and/or content of a document. Returns None if not found."""
+    """Update fields on a document. Returns None if not found."""
     sets = ["updated_at = CURRENT_TIMESTAMP"]
     params: list[object] = []
 
@@ -260,6 +305,12 @@ async def update_customer_document(
     if embedding is not None:
         params.append(json.dumps(embedding))
         sets.append(f"embedding = ${len(params)}::vector")
+    if doc_type is not None:
+        params.append(doc_type)
+        sets.append(f"doc_type = ${len(params)}")
+    if doc_date is not None:
+        params.append(doc_date)
+        sets.append(f"doc_date = ${len(params)}")
 
     params.extend([doc_id, customer_id])
     id_param = len(params) - 1
@@ -270,7 +321,7 @@ async def update_customer_document(
         UPDATE customer_documents
         SET {", ".join(sets)}
         WHERE id = ${id_param} AND customer_id = ${cid_param}
-        RETURNING id, customer_id, title, content, created_at, updated_at
+        RETURNING id, customer_id, title, content, doc_type, doc_date, created_at, updated_at
         """,
         *params,
     )

@@ -33,7 +33,7 @@ export default function ChatPage() {
     setMessages((prev) => [...prev, { role: "assistant", content: "" }])
 
     try {
-      const updatedHistory = await streamQuery(
+      const { history: updatedHistory } = await streamQuery(
         query,
         history,
         (delta) => {

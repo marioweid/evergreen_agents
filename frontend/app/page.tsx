@@ -2,38 +2,38 @@
 
 import Link from "next/link"
 import { useQuery } from "@tanstack/react-query"
-import { Users, RefreshCw, AlertTriangle, TrendingDown } from "lucide-react"
+import { Users, Star, RefreshCw, Plus, XCircle, TrendingDown } from "lucide-react"
 import { Skeleton } from "@/components/ui/skeleton"
 import { getCustomers, getPipelineStatus, getRoadmapChanges } from "@/lib/api"
-import type { Customer, RoadmapChange } from "@/types/api"
-import { STATUS_STYLE } from "@/app/customers/page"
-import { cn } from "@/lib/utils"
+import type { RoadmapChange } from "@/types/api"
 
-const CHANGE_BADGE: Record<string, { label: string; className: string }> = {
-  new:            { label: "New",      className: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200" },
-  status_changed: { label: "Status",   className: "bg-blue-100  text-blue-800  dark:bg-blue-900  dark:text-blue-200"  },
-  phase_changed:  { label: "Phase",    className: "bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200" },
-  cancelled:      { label: "Cancelled",className: "bg-red-100   text-red-800   dark:bg-red-900   dark:text-red-200"   },
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+type ChangeType = "new" | "status_changed" | "phase_changed" | "cancelled"
+
+type SyncSummary = {
+  syncId: string
+  new: number
+  status_changed: number
+  phase_changed: number
+  cancelled: number
+  total: number
 }
 
-const PRIORITY_ORDER: Record<string, number> = { high: 0, medium: 1, low: 2 }
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function StatCard({ label, value, icon: Icon, sub }: {
-  label: string
-  value: string | number
-  icon: React.ElementType
-  sub?: string
-}) {
-  return (
-    <div className="rounded-lg border p-4 flex flex-col gap-1">
-      <div className="flex items-center gap-2 text-muted-foreground">
-        <Icon size={14} />
-        <span className="text-xs">{label}</span>
-      </div>
-      <p className="text-2xl font-semibold">{value}</p>
-      {sub && <p className="text-xs text-muted-foreground">{sub}</p>}
-    </div>
-  )
+const CHANGE_BADGE: Record<ChangeType, { label: string; className: string }> = {
+  new:            { label: "New",       className: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200" },
+  status_changed: { label: "Status",    className: "bg-blue-100  text-blue-800  dark:bg-blue-900  dark:text-blue-200"  },
+  phase_changed:  { label: "Phase",     className: "bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200" },
+  cancelled:      { label: "Cancelled", className: "bg-red-100   text-red-800   dark:bg-red-900   dark:text-red-200"   },
+}
+
+const CHART_COLORS: Record<ChangeType, string> = {
+  new:            "#22c55e",
+  status_changed: "#3b82f6",
+  phase_changed:  "#f59e0b",
+  cancelled:      "#ef4444",
 }
 
 function lastSyncChanges(changes: RoadmapChange[]): RoadmapChange[] {
@@ -42,11 +42,129 @@ function lastSyncChanges(changes: RoadmapChange[]): RoadmapChange[] {
   return changes.filter((c) => c.sync_id === latest)
 }
 
-function attentionCustomers(customers: Customer[]): Customer[] {
-  return customers
-    .filter((c) => c.status === "at_risk" || c.status === "churning")
-    .sort((a, b) => (PRIORITY_ORDER[a.priority] ?? 99) - (PRIORITY_ORDER[b.priority] ?? 99))
+function buildSyncHistory(changes: RoadmapChange[]): SyncSummary[] {
+  const map = new Map<string, SyncSummary>()
+  for (const c of changes) {
+    if (!map.has(c.sync_id)) {
+      map.set(c.sync_id, { syncId: c.sync_id, new: 0, status_changed: 0, phase_changed: 0, cancelled: 0, total: 0 })
+    }
+    const s = map.get(c.sync_id)
+    if (!s) continue
+    const t = c.change_type
+    if (t === "new") s.new++
+    else if (t === "status_changed") s.status_changed++
+    else if (t === "phase_changed") s.phase_changed++
+    else if (t === "cancelled") s.cancelled++
+    s.total++
+  }
+  return [...map.values()]
+    .sort((a, b) => a.syncId.localeCompare(b.syncId))
+    .slice(-20)
 }
+
+function formatSyncDate(syncId: string): string {
+  const d = new Date(syncId)
+  return isNaN(d.getTime()) ? syncId : d.toLocaleDateString(undefined, { month: "short", day: "numeric" })
+}
+
+// ─── Components ───────────────────────────────────────────────────────────────
+
+function StatCard({ label, value, icon: Icon, sub, highlight }: {
+  label: string
+  value: string | number
+  icon: React.ElementType
+  sub?: string
+  highlight?: "warning" | "danger"
+}) {
+  const valueClass = highlight === "danger"
+    ? "text-red-600 dark:text-red-400"
+    : highlight === "warning"
+    ? "text-amber-600 dark:text-amber-400"
+    : ""
+  return (
+    <div className="rounded-lg border p-4 flex flex-col gap-1">
+      <div className="flex items-center gap-2 text-muted-foreground">
+        <Icon size={14} />
+        <span className="text-xs">{label}</span>
+      </div>
+      <p className={`text-2xl font-semibold ${valueClass}`}>{value}</p>
+      {sub && <p className="text-xs text-muted-foreground">{sub}</p>}
+    </div>
+  )
+}
+
+function ActivityChart({ syncs }: { syncs: SyncSummary[] }) {
+  if (syncs.length === 0) return null
+  const maxTotal = Math.max(...syncs.map((s) => s.total), 1)
+  const segments: Array<{ key: ChangeType; color: string }> = [
+    { key: "new",            color: CHART_COLORS.new },
+    { key: "status_changed", color: CHART_COLORS.status_changed },
+    { key: "phase_changed",  color: CHART_COLORS.phase_changed },
+    { key: "cancelled",      color: CHART_COLORS.cancelled },
+  ]
+
+  return (
+    <div className="flex flex-col gap-3">
+      {/* Bars */}
+      <div className="flex items-end gap-1 h-36">
+        {syncs.map((s) => {
+          const heightPct = (s.total / maxTotal) * 100
+          return (
+            <div key={s.syncId} className="flex-1 flex flex-col justify-end min-w-0 group relative">
+              {/* Tooltip */}
+              <div className="absolute bottom-full mb-1.5 left-1/2 -translate-x-1/2 z-10 hidden group-hover:flex flex-col gap-0.5 rounded-md border bg-popover px-2.5 py-2 shadow-md text-xs whitespace-nowrap">
+                <p className="font-medium mb-0.5">{formatSyncDate(s.syncId)}</p>
+                {segments.map(({ key }) => s[key] > 0 && (
+                  <p key={key} className="text-muted-foreground">
+                    {CHANGE_BADGE[key].label}: <span className="font-medium text-foreground">{s[key]}</span>
+                  </p>
+                ))}
+                <p className="border-t mt-0.5 pt-0.5 font-medium">Total: {s.total}</p>
+              </div>
+              {/* Stacked bar */}
+              <div className="flex flex-col-reverse rounded-sm overflow-hidden" style={{ height: `${heightPct}%` }}>
+                {segments.map(({ key, color }) => {
+                  const count = s[key]
+                  if (count === 0) return null
+                  return (
+                    <div
+                      key={key}
+                      style={{ flex: count, backgroundColor: color }}
+                    />
+                  )
+                })}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+      {/* X-axis labels — show only first, middle, last to avoid crowding */}
+      <div className="flex items-end" style={{ gap: "0.25rem" }}>
+        {syncs.map((s, i) => {
+          const show = i === 0 || i === syncs.length - 1 || i === Math.floor(syncs.length / 2)
+          return (
+            <div key={s.syncId} className="flex-1 min-w-0 text-center">
+              {show && (
+                <span className="text-[10px] text-muted-foreground truncate block">{formatSyncDate(s.syncId)}</span>
+              )}
+            </div>
+          )
+        })}
+      </div>
+      {/* Legend */}
+      <div className="flex flex-wrap gap-3">
+        {segments.map(({ key, color }) => (
+          <div key={key} className="flex items-center gap-1.5">
+            <div className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: color }} />
+            <span className="text-xs text-muted-foreground">{CHANGE_BADGE[key].label}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
   const { data: customers, isLoading: customersLoading } = useQuery({
@@ -65,82 +183,85 @@ export default function DashboardPage() {
   })
 
   const latestChanges = lastSyncChanges(changes ?? [])
-  const atRisk = attentionCustomers(customers ?? [])
+  const syncHistory = buildSyncHistory(changes ?? [])
+  const totalSyncs = new Set((changes ?? []).map((c) => c.sync_id)).size
+  const highPriority = (customers ?? []).filter((c) => c.priority === "high").length
+  const lastSyncNew = latestChanges.filter((c) => c.change_type === "new").length
+  const lastSyncCancelled = latestChanges.filter((c) => c.change_type === "cancelled").length
+
+  const statsReady = !customersLoading && !changesLoading
 
   return (
     <div className="flex h-full flex-col">
       <div className="border-b px-6 py-4">
         <h1 className="text-lg font-semibold">Dashboard</h1>
-        <p className="text-sm text-muted-foreground">Weekly overview</p>
+        <p className="text-sm text-muted-foreground">Overview</p>
       </div>
 
-      <div className="flex-1 overflow-auto px-6 py-6 flex flex-col gap-8 max-w-4xl">
-        {/* Stat cards */}
-        <div className="grid grid-cols-3 gap-4">
-          {customersLoading ? (
-            Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-24" />)
-          ) : (
-            <>
-              <StatCard
-                label="Total customers"
-                value={customers?.length ?? 0}
-                icon={Users}
-              />
-              <StatCard
-                label="Needing attention"
-                value={atRisk.length}
-                icon={AlertTriangle}
-                sub={atRisk.length === 0 ? "All customers stable" : "At risk or churning"}
-              />
-              <StatCard
-                label="Changes in last sync"
-                value={latestChanges.length}
-                icon={RefreshCw}
-                sub={pipelineStatus?.last_run
-                  ? `Synced ${new Date(pipelineStatus.last_run).toLocaleDateString()}`
-                  : "Never synced"}
-              />
-            </>
-          )}
-        </div>
+      <div className="flex-1 overflow-auto px-6 py-6 flex flex-col gap-8">
 
-        {/* Attention needed */}
-        {atRisk.length > 0 && (
-          <section className="flex flex-col gap-3">
-            <h2 className="text-sm font-semibold flex items-center gap-1.5">
-              <AlertTriangle size={14} className="text-amber-500" /> Needs attention
-            </h2>
-            <div className="flex flex-col gap-2">
-              {atRisk.map((c) => {
-                const s = c.status ? STATUS_STYLE[c.status] : null
-                return (
-                  <Link
-                    key={c.name}
-                    href={`/customers/${encodeURIComponent(c.name)}`}
-                    className="rounded-lg border px-4 py-3 flex items-center justify-between gap-4 hover:bg-muted/50 transition-colors"
-                  >
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium">{c.name}</p>
-                      {c.description && (
-                        <p className="text-xs text-muted-foreground mt-0.5 truncate">{c.description}</p>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      <span className="text-xs text-muted-foreground capitalize">{c.priority}</span>
-                      {s && (
-                        <span className={cn("rounded px-1.5 py-0.5 text-xs font-medium", s.className)}>
-                          {s.label}
-                        </span>
-                      )}
-                    </div>
-                  </Link>
-                )
-              })}
-            </div>
-          </section>
+        {/* Stat cards */}
+        {!statsReady ? (
+          <div className="grid grid-cols-3 gap-4">
+            {Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-24" />)}
+          </div>
+        ) : (
+          <div className="grid grid-cols-3 gap-4">
+            <StatCard
+              label="Total customers"
+              value={customers?.length ?? 0}
+              icon={Users}
+            />
+            <StatCard
+              label="High-priority customers"
+              value={highPriority}
+              icon={Star}
+              highlight={highPriority > 0 ? "warning" : undefined}
+            />
+            <StatCard
+              label="Syncs tracked"
+              value={totalSyncs}
+              icon={RefreshCw}
+              sub={pipelineStatus?.last_run
+                ? `Last: ${new Date(pipelineStatus.last_run).toLocaleDateString()}`
+                : "Never synced"}
+            />
+            <StatCard
+              label="Changes in last sync"
+              value={latestChanges.length}
+              icon={RefreshCw}
+            />
+            <StatCard
+              label="New items (last sync)"
+              value={lastSyncNew}
+              icon={Plus}
+            />
+            <StatCard
+              label="Cancellations (last sync)"
+              value={lastSyncCancelled}
+              icon={XCircle}
+              highlight={lastSyncCancelled > 0 ? "danger" : undefined}
+            />
+          </div>
         )}
 
-        {/* Recent roadmap changes */}
+        {/* Roadmap activity chart */}
+        <section className="flex flex-col gap-3">
+          <h2 className="text-sm font-semibold">Roadmap activity per sync</h2>
+          {changesLoading && (
+            <Skeleton className="h-48" />
+          )}
+          {!changesLoading && syncHistory.length === 0 && (
+            <p className="text-sm text-muted-foreground">
+              No sync history yet.{" "}
+              <Link href="/settings" className="text-primary hover:underline">Trigger a sync</Link>{" "}
+              to start tracking.
+            </p>
+          )}
+          {syncHistory.length > 0 && <ActivityChart syncs={syncHistory} />}
+        </section>
+
+        {/* Latest sync change list */}
         <section className="flex flex-col gap-3">
           <h2 className="text-sm font-semibold flex items-center gap-1.5">
             <TrendingDown size={14} className="text-blue-500" /> Latest sync changes
@@ -153,9 +274,7 @@ export default function DashboardPage() {
           {!changesLoading && latestChanges.length === 0 && (
             <p className="text-sm text-muted-foreground">
               No changes recorded yet.{" "}
-              <Link href="/settings" className="text-primary hover:underline">
-                Trigger a sync
-              </Link>{" "}
+              <Link href="/settings" className="text-primary hover:underline">Trigger a sync</Link>{" "}
               to start tracking.
             </p>
           )}
@@ -166,10 +285,10 @@ export default function DashboardPage() {
               </p>
               <div className="flex flex-col gap-1">
                 {latestChanges.slice(0, 15).map((c) => {
-                  const badge = CHANGE_BADGE[c.change_type] ?? { label: c.change_type, className: "" }
+                  const badge = CHANGE_BADGE[c.change_type as ChangeType] ?? { label: c.change_type, className: "" }
                   return (
                     <div key={c.id} className="flex items-start gap-3 rounded-lg border px-3 py-2">
-                      <span className={cn("shrink-0 mt-0.5 rounded px-1.5 py-0.5 text-xs font-medium", badge.className)}>
+                      <span className={`shrink-0 mt-0.5 rounded px-1.5 py-0.5 text-xs font-medium ${badge.className}`}>
                         {badge.label}
                       </span>
                       <div className="flex-1 min-w-0">
@@ -193,6 +312,7 @@ export default function DashboardPage() {
             </>
           )}
         </section>
+
       </div>
     </div>
   )

@@ -14,13 +14,6 @@ import type { Customer } from "@/types/api"
 
 const PRIORITY_ORDER: Record<string, number> = { high: 0, medium: 1, low: 2 }
 
-export const STATUS_STYLE: Record<string, { label: string; className: string }> = {
-  active:   { label: "Active",   className: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200" },
-  at_risk:  { label: "At risk",  className: "bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200" },
-  churning: { label: "Churning", className: "bg-red-100   text-red-800   dark:bg-red-900   dark:text-red-200"   },
-  churned:  { label: "Churned",  className: "bg-gray-100  text-gray-600  dark:bg-gray-800  dark:text-gray-400"  },
-}
-
 type SortKey = "name" | "priority"
 type SortDir = "asc" | "desc"
 
@@ -142,7 +135,7 @@ function CustomerForm({ onSuccess }: { onSuccess: () => void }) {
   }
 
   return (
-    <form onSubmit={submit} className="flex flex-col gap-4 pt-4">
+    <form onSubmit={submit} className="flex flex-col gap-4">
       <div className="flex flex-col gap-1">
         <label className="text-sm font-medium">Name</label>
         <Input required value={name} onChange={(e) => setName(e.target.value)} placeholder="Contoso Ltd" />
@@ -176,7 +169,7 @@ function CustomerForm({ onSuccess }: { onSuccess: () => void }) {
         <Input
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
-          placeholder="Key contacts, renewal dates, important context…"
+          placeholder="Renewal dates, important context…"
         />
       </div>
       {mutation.error && (
@@ -243,11 +236,13 @@ export default function CustomersPage() {
             <SheetTrigger className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90">
               <Plus size={14} /> New customer
             </SheetTrigger>
-            <SheetContent>
+            <SheetContent className="overflow-y-auto">
               <SheetHeader>
                 <SheetTitle>New customer</SheetTitle>
               </SheetHeader>
-              <CustomerForm onSuccess={() => setOpen(false)} />
+              <div className="px-4 pb-6">
+                <CustomerForm onSuccess={() => setOpen(false)} />
+              </div>
             </SheetContent>
           </Sheet>
         </div>
@@ -287,7 +282,6 @@ export default function CustomersPage() {
                     >
                       Priority <SortIcon active={sortKey === "priority"} dir={sortDir} />
                     </TableHead>
-                    <TableHead>Status</TableHead>
                     <TableHead>Products</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -306,16 +300,6 @@ export default function CustomersPage() {
                   </TableCell>
                       <TableCell>
                         <Badge variant={PRIORITY_VARIANT[c.priority]}>{c.priority}</Badge>
-                      </TableCell>
-                      <TableCell>
-                        {c.status && (() => {
-                          const s = STATUS_STYLE[c.status!]
-                          return s ? (
-                            <span className={`rounded px-1.5 py-0.5 text-xs font-medium ${s.className}`}>
-                              {s.label}
-                            </span>
-                          ) : null
-                        })()}
                       </TableCell>
                       <TableCell>
                         <div className="flex flex-wrap gap-1">
